@@ -489,6 +489,9 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(get_envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"latestSummaryEvent\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"memoryEntryCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerId\":\"mock_openai_session_summary\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolTraceCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerLatencyMs\":") != null);
 }
 
 test "cli channel records real request semantics" {

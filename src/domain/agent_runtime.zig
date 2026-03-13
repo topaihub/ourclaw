@@ -263,6 +263,22 @@ pub const AgentRuntime = struct {
             break;
         }
 
+        const provider_latency_ms: u64 = @intCast(@max(std.time.milliTimestamp() - started_at, 0));
+        const turn_payload = if (tool_id_owned) |tool_id|
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolId\":\"{s}\",\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, tool_id, tool_rounds, provider_latency_ms, recall.entry_count },
+            )
+        else
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolId\":null,\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, tool_rounds, provider_latency_ms, recall.entry_count },
+            );
+        defer self.allocator.free(turn_payload);
+        try self.session_store.appendEvent(request.session_id, "session.turn.completed", turn_payload);
+
         const events = try self.session_store.snapshotSince(self.allocator, request.session_id, event_start_index);
         return .{
             .session_id = try self.allocator.dupe(u8, request.session_id),
@@ -272,7 +288,7 @@ pub const AgentRuntime = struct {
             .tool_id = if (tool_id_owned) |tool_id| tool_id else null,
             .tool_result_json = tool_result_json,
             .tool_rounds = tool_rounds,
-            .provider_latency_ms = @intCast(@max(std.time.milliTimestamp() - started_at, 0)),
+            .provider_latency_ms = provider_latency_ms,
             .memory_entries_used = recall.entry_count,
             .events = events,
         };

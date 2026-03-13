@@ -31,13 +31,29 @@ pub const SessionRecord = struct {
 pub const SessionSnapshot = struct {
     session_id: []u8,
     event_count: usize,
+    tool_trace_count: usize = 0,
     last_event_kind: ?[]u8 = null,
     latest_summary_text: ?[]u8 = null,
+    latest_assistant_response: ?[]u8 = null,
+    latest_provider_id: ?[]u8 = null,
+    latest_model: ?[]u8 = null,
+    latest_tool_id: ?[]u8 = null,
+    latest_tool_result_json: ?[]u8 = null,
+    latest_tool_rounds: usize = 0,
+    latest_provider_latency_ms: ?u64 = null,
+    latest_memory_entries_used: usize = 0,
+    last_error_code: ?[]u8 = null,
 
     pub fn deinit(self: *SessionSnapshot, allocator: std.mem.Allocator) void {
         allocator.free(self.session_id);
         if (self.last_event_kind) |value| allocator.free(value);
         if (self.latest_summary_text) |value| allocator.free(value);
+        if (self.latest_assistant_response) |value| allocator.free(value);
+        if (self.latest_provider_id) |value| allocator.free(value);
+        if (self.latest_model) |value| allocator.free(value);
+        if (self.latest_tool_id) |value| allocator.free(value);
+        if (self.latest_tool_result_json) |value| allocator.free(value);
+        if (self.last_error_code) |value| allocator.free(value);
     }
 };
 
@@ -97,25 +113,94 @@ pub const SessionStore = struct {
         };
 
         var latest_summary_text: ?[]u8 = null;
+        var latest_assistant_response: ?[]u8 = null;
+        var latest_provider_id: ?[]u8 = null;
+        var latest_model: ?[]u8 = null;
+        var latest_tool_id: ?[]u8 = null;
+        var latest_tool_result_json: ?[]u8 = null;
+        var latest_tool_rounds: usize = 0;
+        var latest_provider_latency_ms: ?u64 = null;
+        var latest_memory_entries_used: usize = 0;
+        var last_error_code: ?[]u8 = null;
+        var tool_trace_count: usize = 0;
+
+        for (session.events.items) |event| {
+            if (std.mem.startsWith(u8, event.kind, "tool.call.")) {
+                tool_trace_count += 1;
+            }
+        }
+
         var index = session.events.items.len;
         while (index > 0) {
             index -= 1;
             const event = session.events.items[index];
-            if (std.mem.eql(u8, event.kind, "session.summary")) {
+            if (latest_summary_text == null and std.mem.eql(u8, event.kind, "session.summary")) {
                 latest_summary_text = try allocator.dupe(u8, event.payload_json);
-                break;
+            }
+            if (latest_assistant_response == null and std.mem.eql(u8, event.kind, "assistant.response")) {
+                latest_assistant_response = try allocator.dupe(u8, event.payload_json);
+            }
+            if (latest_tool_result_json == null and std.mem.eql(u8, event.kind, "tool.result")) {
+                latest_tool_result_json = try allocator.dupe(u8, event.payload_json);
+            }
+            if (latest_tool_id == null and std.mem.startsWith(u8, event.kind, "tool.call.")) {
+                latest_tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
+            }
+            if (last_error_code == null and (std.mem.eql(u8, event.kind, "error") or std.mem.eql(u8, event.kind, "tool.call.failed") or std.mem.eql(u8, event.kind, "tool.call.denied"))) {
+                last_error_code = try cloneJsonStringField(allocator, event.payload_json, "errorCode");
+            }
+            if (std.mem.eql(u8, event.kind, "session.turn.completed")) {
+                if (latest_provider_id == null) latest_provider_id = try cloneJsonStringField(allocator, event.payload_json, "providerId");
+                if (latest_model == null) latest_model = try cloneJsonStringField(allocator, event.payload_json, "model");
+                if (latest_tool_id == null) latest_tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
+                if (latest_provider_latency_ms == null) latest_provider_latency_ms = parseJsonUnsignedField(event.payload_json, "providerLatencyMs");
+                if (latest_tool_rounds == 0) latest_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
+                if (latest_memory_entries_used == 0) latest_memory_entries_used = @intCast(parseJsonUnsignedField(event.payload_json, "memoryEntriesUsed") orelse 0);
             }
         }
 
         return .{
             .session_id = try allocator.dupe(u8, session.id),
             .event_count = session.events.items.len,
+            .tool_trace_count = tool_trace_count,
             .last_event_kind = if (session.events.items.len > 0)
                 try allocator.dupe(u8, session.events.items[session.events.items.len - 1].kind)
             else
                 null,
             .latest_summary_text = latest_summary_text,
+            .latest_assistant_response = latest_assistant_response,
+            .latest_provider_id = latest_provider_id,
+            .latest_model = latest_model,
+            .latest_tool_id = latest_tool_id,
+            .latest_tool_result_json = latest_tool_result_json,
+            .latest_tool_rounds = latest_tool_rounds,
+            .latest_provider_latency_ms = latest_provider_latency_ms,
+            .latest_memory_entries_used = latest_memory_entries_used,
+            .last_error_code = last_error_code,
         };
+    }
+
+    fn cloneJsonStringField(allocator: std.mem.Allocator, payload_json: []const u8, key: []const u8) anyerror!?[]u8 {
+        var pattern_buf: [64]u8 = undefined;
+        const pattern = try std.fmt.bufPrint(&pattern_buf, "\"{s}\":\"", .{key});
+        const start = std.mem.indexOf(u8, payload_json, pattern) orelse return null;
+        const value_start = start + pattern.len;
+        const suffix = payload_json[value_start..];
+        const value_end_rel = std.mem.indexOfScalar(u8, suffix, '"') orelse return null;
+        const cloned = try allocator.dupe(u8, suffix[0..value_end_rel]);
+        return cloned;
+    }
+
+    fn parseJsonUnsignedField(payload_json: []const u8, key: []const u8) ?u64 {
+        var pattern_buf: [64]u8 = undefined;
+        const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\":", .{key}) catch return null;
+        const start = std.mem.indexOf(u8, payload_json, pattern) orelse return null;
+        const value_start = start + pattern.len;
+        const suffix = payload_json[value_start..];
+        var value_end: usize = 0;
+        while (value_end < suffix.len and suffix[value_end] >= '0' and suffix[value_end] <= '9') : (value_end += 1) {}
+        if (value_end == 0) return null;
+        return std.fmt.parseUnsigned(u64, suffix[0..value_end], 10) catch null;
     }
 
     fn cloneEvents(allocator: std.mem.Allocator, source: []const SessionEvent, start_index: usize) anyerror![]SessionEvent {
@@ -157,4 +242,25 @@ test "session store builds snapshot metadata" {
     try std.testing.expectEqual(@as(usize, 2), snapshot.event_count);
     try std.testing.expectEqualStrings("session.summary", snapshot.last_event_kind.?);
     try std.testing.expectEqualStrings("condensed summary", snapshot.latest_summary_text.?);
+}
+
+test "session store tracks latest turn metadata and tool trace summary" {
+    var store = SessionStore.init(std.testing.allocator);
+    defer store.deinit();
+    try store.appendEvent("sess_turn", "tool.call.started", "{\"toolId\":\"echo\"}");
+    try store.appendEvent("sess_turn", "tool.result", "{\"ok\":true}");
+    try store.appendEvent("sess_turn", "assistant.response", "hello back");
+    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3}");
+
+    var snapshot = try store.snapshotMeta(std.testing.allocator, "sess_turn");
+    defer snapshot.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 4), snapshot.event_count);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.tool_trace_count);
+    try std.testing.expectEqualStrings("hello back", snapshot.latest_assistant_response.?);
+    try std.testing.expectEqualStrings("mock_openai", snapshot.latest_provider_id.?);
+    try std.testing.expectEqualStrings("gpt-4o-mini", snapshot.latest_model.?);
+    try std.testing.expectEqualStrings("echo", snapshot.latest_tool_id.?);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.latest_tool_rounds);
+    try std.testing.expectEqual(@as(u64, 42), snapshot.latest_provider_latency_ms.?);
+    try std.testing.expectEqual(@as(usize, 3), snapshot.latest_memory_entries_used);
 }

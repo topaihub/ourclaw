@@ -34,8 +34,18 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendStringField(writer, "sessionId", snapshot.session_id, true);
     try appendUnsignedField(writer, "eventCount", snapshot.event_count, false);
     try appendUnsignedField(writer, "memoryEntryCount", services.memory_runtime.countBySession(session_id), false);
+    try appendUnsignedField(writer, "toolTraceCount", snapshot.tool_trace_count, false);
     try appendOptionalStringField(writer, "lastEventKind", snapshot.last_event_kind, false);
     try appendOptionalStringField(writer, "latestSummaryEvent", snapshot.latest_summary_text, false);
+    try appendOptionalStringField(writer, "latestAssistantResponse", snapshot.latest_assistant_response, false);
+    try appendOptionalStringField(writer, "providerId", snapshot.latest_provider_id, false);
+    try appendOptionalStringField(writer, "model", snapshot.latest_model, false);
+    try appendOptionalStringField(writer, "lastToolId", snapshot.latest_tool_id, false);
+    try appendOptionalRawJsonField(writer, "latestToolResult", snapshot.latest_tool_result_json, false);
+    try appendUnsignedField(writer, "toolRounds", snapshot.latest_tool_rounds, false);
+    try appendOptionalUnsignedField(writer, "providerLatencyMs", snapshot.latest_provider_latency_ms, false);
+    try appendUnsignedField(writer, "memoryEntriesUsed", snapshot.latest_memory_entries_used, false);
+    try appendOptionalStringField(writer, "lastErrorCode", snapshot.last_error_code, false);
     try appendStringField(writer, "summaryText", summary.summary_text, false);
     try appendUnsignedField(writer, "summarySourceCount", summary.source_count, false);
     try writer.writeByte('}');
@@ -65,6 +75,28 @@ fn appendUnsignedField(writer: anytype, key: []const u8, value: usize, first: bo
     try writeJsonString(writer, key);
     try writer.writeByte(':');
     try writer.print("{d}", .{value});
+}
+
+fn appendOptionalUnsignedField(writer: anytype, key: []const u8, value: ?u64, first: bool) anyerror!void {
+    if (!first) try writer.writeByte(',');
+    try writeJsonString(writer, key);
+    try writer.writeByte(':');
+    if (value) |number| {
+        try writer.print("{d}", .{number});
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn appendOptionalRawJsonField(writer: anytype, key: []const u8, value: ?[]const u8, first: bool) anyerror!void {
+    if (!first) try writer.writeByte(',');
+    try writeJsonString(writer, key);
+    try writer.writeByte(':');
+    if (value) |json| {
+        try writer.writeAll(json);
+    } else {
+        try writer.writeAll("null");
+    }
 }
 
 fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
