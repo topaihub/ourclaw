@@ -1,0 +1,15 @@
+.{
+    .name = .ourclaw,
+    .version = "0.1.0",
+    .fingerprint = 0xe2b6187f5204cd92,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "docs",
+        "src",
+        "tests",
+    },
+}

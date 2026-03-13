@@ -1,0 +1,8 @@
+out.log
+err.log
+out2.log
+err2.log
+zig-test.log
+*-tmp.log
+tmp.zig
+.DS_Store

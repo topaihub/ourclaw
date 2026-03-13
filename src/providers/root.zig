@@ -1,0 +1,342 @@
+const std = @import("std");
+const framework = @import("framework");
+const security = @import("../security/policy.zig");
+const openai_compatible = @import("openai_compatible.zig");
+
+pub const MODULE_NAME = "providers";
+
+pub const ProviderRole = enum {
+    system,
+    user,
+    assistant,
+    tool,
+
+    pub fn asText(self: ProviderRole) []const u8 {
+        return switch (self) {
+            .system => "system",
+            .user => "user",
+            .assistant => "assistant",
+            .tool => "tool",
+        };
+    }
+};
+
+pub const ProviderMessage = struct {
+    role: ProviderRole,
+    content: []const u8,
+};
+
+pub const ProviderRequest = struct {
+    provider_id: []const u8,
+    model: ?[]const u8 = null,
+    messages: []const ProviderMessage,
+    enable_tools: bool = false,
+};
+
+pub const ProviderModelInfo = struct {
+    id: []const u8,
+    label: []const u8,
+    supports_streaming: bool,
+    supports_tools: bool,
+};
+
+pub const ProviderHealth = struct {
+    provider_id: []u8,
+    healthy: bool,
+    supports_streaming: bool,
+    endpoint: []u8,
+    message: []u8,
+
+    pub fn deinit(self: *ProviderHealth, allocator: std.mem.Allocator) void {
+        allocator.free(self.provider_id);
+        allocator.free(self.endpoint);
+        allocator.free(self.message);
+    }
+};
+
+pub const ProviderStreamChunk = struct {
+    kind: Kind,
+    text: ?[]u8 = null,
+    tool_name: ?[]u8 = null,
+    tool_input_json: ?[]u8 = null,
+    finish_reason: ?[]u8 = null,
+
+    pub const Kind = enum {
+        text_delta,
+        tool_call,
+        done,
+    };
+
+    pub fn deinit(self: *ProviderStreamChunk, allocator: std.mem.Allocator) void {
+        if (self.text) |value| allocator.free(value);
+        if (self.tool_name) |value| allocator.free(value);
+        if (self.tool_input_json) |value| allocator.free(value);
+        if (self.finish_reason) |value| allocator.free(value);
+    }
+};
+
+pub const ProviderResponse = struct {
+    provider_id: []u8,
+    model: []u8,
+    text: []u8,
+    tool_name: ?[]u8 = null,
+    tool_input_json: ?[]u8 = null,
+    finish_reason: ?[]u8 = null,
+    prompt_tokens: ?u32 = null,
+    completion_tokens: ?u32 = null,
+    raw_json: ?[]u8 = null,
+
+    pub fn deinit(self: *ProviderResponse, allocator: std.mem.Allocator) void {
+        allocator.free(self.provider_id);
+        allocator.free(self.model);
+        allocator.free(self.text);
+        if (self.tool_name) |value| allocator.free(value);
+        if (self.tool_input_json) |value| allocator.free(value);
+        if (self.finish_reason) |value| allocator.free(value);
+        if (self.raw_json) |value| allocator.free(value);
+    }
+};
+
+pub const ProviderDefinition = struct {
+    id: []const u8,
+    label: []const u8,
+    required_authority: framework.Authority = .operator,
+    endpoint: []const u8 = "",
+    default_model: []const u8 = "gpt-4o-mini",
+    api_key_secret_ref: []const u8 = "openai:api_key",
+    supports_streaming: bool = false,
+    supports_tools: bool = false,
+    models: []const []const u8 = &.{},
+    health_json: []const u8,
+};
+
+pub const ProviderRegistry = struct {
+    allocator: std.mem.Allocator,
+    definitions: std.ArrayListUnmanaged(ProviderDefinition) = .empty,
+    secret_store: ?*security.MemorySecretStore = null,
+    refresh_count: usize = 0,
+    last_refresh_reason: ?[]u8 = null,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.last_refresh_reason) |reason| self.allocator.free(reason);
+        self.definitions.deinit(self.allocator);
+    }
+
+    pub fn markConfigRefresh(self: *Self, reason: []const u8) anyerror!void {
+        if (self.last_refresh_reason) |previous| self.allocator.free(previous);
+        self.last_refresh_reason = try self.allocator.dupe(u8, reason);
+        self.refresh_count += 1;
+    }
+
+    pub fn register(self: *Self, definition: ProviderDefinition) anyerror!void {
+        if (self.find(definition.id) != null) return error.DuplicateProvider;
+        try self.definitions.append(self.allocator, definition);
+    }
+
+    pub fn registerBuiltins(self: *Self) anyerror!void {
+        try self.register(.{
+            .id = "openai",
+            .label = "OpenAI",
+            .endpoint = "https://api.openai.com/v1/chat/completions",
+            .default_model = "gpt-4o-mini",
+            .api_key_secret_ref = "openai:api_key",
+            .supports_streaming = true,
+            .supports_tools = true,
+            .models = &.{ "gpt-4o-mini", "gpt-4.1-mini", "gpt-4o" },
+            .health_json = "{\"provider\":\"openai\",\"healthy\":true}",
+        });
+        try self.register(.{
+            .id = "anthropic",
+            .label = "Anthropic",
+            .endpoint = "https://api.anthropic.com/v1/messages",
+            .default_model = "claude-3-5-sonnet-latest",
+            .api_key_secret_ref = "anthropic:api_key",
+            .supports_streaming = false,
+            .supports_tools = false,
+            .models = &.{"claude-3-5-sonnet-latest"},
+            .health_json = "{\"provider\":\"anthropic\",\"healthy\":true}",
+        });
+    }
+
+    pub fn setSecretStore(self: *Self, secret_store: *security.MemorySecretStore) void {
+        self.secret_store = secret_store;
+    }
+
+    pub fn healthJson(self: *const Self, allocator: std.mem.Allocator, id: []const u8) anyerror![]u8 {
+        const definition = self.find(id) orelse return error.ProviderNotFound;
+        return allocator.dupe(u8, definition.health_json);
+    }
+
+    pub fn supportsTools(self: *const Self, id: []const u8) anyerror!bool {
+        const definition = self.find(id) orelse return error.ProviderNotFound;
+        return definition.supports_tools;
+    }
+
+    pub fn health(self: *const Self, allocator: std.mem.Allocator, id: []const u8) anyerror!ProviderHealth {
+        const definition = self.find(id) orelse return error.ProviderNotFound;
+        return .{
+            .provider_id = try allocator.dupe(u8, definition.id),
+            .healthy = self.secret_store != null and self.secret_store.?.get(definition.api_key_secret_ref) != null,
+            .supports_streaming = definition.supports_streaming,
+            .endpoint = try allocator.dupe(u8, definition.endpoint),
+            .message = try allocator.dupe(u8, if (self.secret_store != null and self.secret_store.?.get(definition.api_key_secret_ref) != null) "ready" else "missing_api_key"),
+        };
+    }
+
+    pub fn listModels(self: *const Self, allocator: std.mem.Allocator, id: []const u8) anyerror![]ProviderModelInfo {
+        const definition = self.find(id) orelse return error.ProviderNotFound;
+        const model_ids = if (definition.models.len > 0) definition.models else &.{definition.default_model};
+        const models = try allocator.alloc(ProviderModelInfo, model_ids.len);
+        errdefer allocator.free(models);
+
+        for (model_ids, 0..) |model_id, index| {
+            models[index] = .{
+                .id = try allocator.dupe(u8, model_id),
+                .label = try allocator.dupe(u8, model_id),
+                .supports_streaming = definition.supports_streaming,
+                .supports_tools = definition.supports_tools,
+            };
+        }
+
+        return models;
+    }
+
+    pub fn chatOnce(self: *const Self, allocator: std.mem.Allocator, request: ProviderRequest) anyerror!ProviderResponse {
+        const definition = self.find(request.provider_id) orelse return error.ProviderNotFound;
+        const secret_store = self.secret_store orelse return error.SecretStoreUnavailable;
+        const api_key = secret_store.get(definition.api_key_secret_ref) orelse return error.ProviderApiKeyMissing;
+
+        if (std.mem.eql(u8, definition.id, "openai") or std.mem.startsWith(u8, definition.endpoint, "mock://openai")) {
+            return openai_compatible.chatOnce(allocator, definition, request, api_key);
+        }
+
+        return error.ProviderNotImplemented;
+    }
+
+    pub fn chatStream(self: *const Self, allocator: std.mem.Allocator, request: ProviderRequest) anyerror![]ProviderStreamChunk {
+        var response = try self.chatOnce(allocator, request);
+        defer response.deinit(allocator);
+
+        var chunks: std.ArrayListUnmanaged(ProviderStreamChunk) = .empty;
+        defer chunks.deinit(allocator);
+
+        if (response.tool_name) |tool_name| {
+            try chunks.append(allocator, .{
+                .kind = .tool_call,
+                .tool_name = try allocator.dupe(u8, tool_name),
+                .tool_input_json = if (response.tool_input_json) |input| try allocator.dupe(u8, input) else null,
+            });
+        } else {
+            var parts = std.mem.splitScalar(u8, response.text, ' ');
+            while (parts.next()) |part| {
+                if (part.len == 0) continue;
+                try chunks.append(allocator, .{
+                    .kind = .text_delta,
+                    .text = try allocator.dupe(u8, part),
+                });
+            }
+        }
+
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = try allocator.dupe(u8, response.finish_reason orelse "stop"),
+        });
+
+        return chunks.toOwnedSlice(allocator);
+    }
+
+    pub fn find(self: *const Self, id: []const u8) ?ProviderDefinition {
+        for (self.definitions.items) |definition| {
+            if (std.mem.eql(u8, definition.id, id)) return definition;
+        }
+        return null;
+    }
+
+    pub fn count(self: *const Self) usize {
+        return self.definitions.items.len;
+    }
+};
+
+test "provider registry registers builtin providers" {
+    var registry = ProviderRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    try registry.registerBuiltins();
+    try std.testing.expectEqual(@as(usize, 2), registry.count());
+    try std.testing.expect(registry.find("openai") != null);
+}
+
+test "provider registry can execute openai-compatible request with mock endpoint" {
+    var registry = ProviderRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    var secrets = security.MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    registry.setSecretStore(&secrets);
+    try registry.register(.{
+        .id = "mock_openai",
+        .label = "Mock OpenAI",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var response = try registry.chatOnce(std.testing.allocator, .{
+        .provider_id = "mock_openai",
+        .messages = &.{.{ .role = .user, .content = "hello" }},
+    });
+    defer response.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("mock openai response", response.text);
+}
+
+test "provider registry exposes health models and streaming" {
+    var registry = ProviderRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    var secrets = security.MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    registry.setSecretStore(&secrets);
+    try registry.register(.{
+        .id = "mock_openai_stream",
+        .label = "Mock OpenAI Stream",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .models = &.{ "gpt-4o-mini", "gpt-4o" },
+        .health_json = "{}",
+    });
+
+    var health = try registry.health(std.testing.allocator, "mock_openai_stream");
+    defer health.deinit(std.testing.allocator);
+    try std.testing.expect(health.healthy);
+    try std.testing.expect(health.supports_streaming);
+
+    const models = try registry.listModels(std.testing.allocator, "mock_openai_stream");
+    defer {
+        for (models) |model| {
+            std.testing.allocator.free(model.id);
+            std.testing.allocator.free(model.label);
+        }
+        std.testing.allocator.free(models);
+    }
+    try std.testing.expect(models.len >= 1);
+
+    const chunks = try registry.chatStream(std.testing.allocator, .{
+        .provider_id = "mock_openai_stream",
+        .messages = &.{.{ .role = .user, .content = "hello" }},
+    });
+    defer {
+        for (chunks) |*chunk| chunk.deinit(std.testing.allocator);
+        std.testing.allocator.free(chunks);
+    }
+    try std.testing.expect(chunks.len >= 2);
+}
