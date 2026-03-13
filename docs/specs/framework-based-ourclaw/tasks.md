@@ -352,7 +352,7 @@
     - `gateway.status` 与 smoke 测试已补 listener/reload 字段断言
     - 验证：`zig build test --summary all` 通过（117/117）
 
-- [ ] **M2-04 把 service_manager / daemon 推进到后台运行模型**
+- [x] **M2-04 把 service_manager / daemon 推进到后台运行模型**
   - 目标：让 install/start/stop/restart/status 能表达后台运行态、锁/PID、autostart/restart budget 等更接近真实宿主的语义。
   - 主线落点：
     - `ourclaw/src/runtime/service_manager.zig`
@@ -366,6 +366,13 @@
   - 参考目的：看前台/后台 service 模式、守护状态与可运维生命周期模型
   - 完成定义：service/daemon status 可反映真实后台运行模型，而不只是启动计数器
   - 验证：`zig build test --summary all`；补 install/start/stop/restart/status + stale-process/failure-path 测试
+  - 本轮实现（2026-03-13）：
+    - `src/runtime/service_manager.zig` 已补 `pid`、`lock_held`、`autostart`、`restart_budget_remaining`、`stale_process_detected`
+    - `service_manager` 已引入 `markStaleProcess()`，并把 restart budget 与后台锁/伪 PID 语义接到 start/stop/restart/status
+    - `src/runtime/daemon.zig` 已镜像这些后台运行状态字段
+    - `src/commands/service_*` 与 `service.status` 已补后台运行模型输出字段
+    - `tests/smoke.zig` 与 `service_manager.zig` 单测已补 autostart / pid / lock / restart budget / stale-process 断言
+    - 验证：`zig build test --summary all` 通过（118/118）
 
 ### 阶段 M2-B：配置治理与 execution 级观测
 

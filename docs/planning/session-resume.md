@@ -424,6 +424,12 @@
   - `gateway.status` 与 smoke 测试已覆盖 listener/reload 字段
   - 验证：`zig build test --summary all` 通过（117/117）
 
+- **M2-04 已完成（2026-03-13）**：
+  - `service_manager` 已从纯计数/状态推进到更接近后台宿主模型：暴露 `pid`、`lock_held`、`autostart`、`restart_budget_remaining`、`stale_process_detected`
+  - `daemon.status`、`service.install/start/stop/restart/status` 已把这些字段暴露到命令层
+  - 已补 `markStaleProcess()`、restart budget 与后台锁/伪 PID 语义
+  - 验证：`zig build test --summary all` 通过（118/118）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`
