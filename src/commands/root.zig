@@ -44,6 +44,7 @@ pub const hardware_register = @import("hardware_register.zig");
 pub const peripheral_register = @import("peripheral_register.zig");
 pub const gateway_start = @import("gateway_start.zig");
 pub const gateway_stop = @import("gateway_stop.zig");
+pub const gateway_reload = @import("gateway_reload.zig");
 pub const gateway_stream_subscribe = @import("gateway_stream_subscribe.zig");
 pub const service_install = @import("service_install.zig");
 pub const service_start = @import("service_start.zig");
@@ -69,6 +70,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(gateway_status.definition(command_services));
     try registry.register(gateway_start.definition(command_services));
     try registry.register(gateway_stop.definition(command_services));
+    try registry.register(gateway_reload.definition(command_services));
     try registry.register(gateway_stream_subscribe.definition(command_services));
     try registry.register(service_status.definition(command_services));
     try registry.register(service_install.definition(command_services));

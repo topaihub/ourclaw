@@ -894,6 +894,16 @@ test "service and gateway control commands mutate runtime state" {
     };
     try std.testing.expect(gateway_status.ok);
     try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"running\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"listenerReady\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"reloadCount\":") != null);
+
+    const gateway_reload = try dispatcher.dispatch(.{ .request_id = "req_gateway_reload", .method = "gateway.reload", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (gateway_reload.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(gateway_reload.ok);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_reload.result.?.success_json, "\"reloadCount\":1") != null);
 }
 
 test "skills cron tunnel mcp hardware commands are operational" {

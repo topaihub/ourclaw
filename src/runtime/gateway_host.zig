@@ -6,13 +6,17 @@ const stream_websocket = @import("../interfaces/stream_websocket.zig");
 
 pub const GatewayStatus = struct {
     running: bool,
+    listener_ready: bool,
     bind_host: []const u8,
     bind_port: u16,
     request_count: usize,
+    active_connections: usize,
     stream_subscriptions: usize,
     handler_attached: bool,
+    reload_count: usize,
     last_started_ms: ?i64,
     last_stopped_ms: ?i64,
+    last_reloaded_ms: ?i64,
     last_error: ?[]const u8,
 };
 
@@ -77,9 +81,13 @@ pub const GatewayHost = struct {
     bind_port: u16,
     running: bool = false,
     request_count: usize = 0,
+    active_connections: usize = 0,
     stream_subscriptions: usize = 0,
+    reload_count: usize = 0,
     last_started_ms: ?i64 = null,
     last_stopped_ms: ?i64 = null,
+    last_reloaded_ms: ?i64 = null,
+    listener_ready: bool = false,
     last_error: ?[]u8 = null,
     listener_thread: ?std.Thread = null,
     stop_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -113,6 +121,7 @@ pub const GatewayHost = struct {
 
         self.stop_requested.store(false, .release);
         self.running = true;
+        self.listener_ready = false;
         self.last_started_ms = std.time.milliTimestamp();
         self.listener_thread = std.Thread.spawn(.{}, listenerMain, .{self}) catch |err| {
             self.running = false;
@@ -131,6 +140,8 @@ pub const GatewayHost = struct {
         const join_thread = self.listener_thread;
         self.listener_thread = null;
         self.running = false;
+        self.listener_ready = false;
+        self.active_connections = 0;
         self.last_stopped_ms = std.time.milliTimestamp();
         self.mutex.unlock();
 
@@ -141,15 +152,27 @@ pub const GatewayHost = struct {
     pub fn status(self: *const Self) GatewayStatus {
         return .{
             .running = self.running,
+            .listener_ready = self.listener_ready,
             .bind_host = self.bind_host,
             .bind_port = self.bind_port,
             .request_count = self.request_count,
+            .active_connections = self.active_connections,
             .stream_subscriptions = self.stream_subscriptions,
             .handler_attached = self.handler != null,
+            .reload_count = self.reload_count,
             .last_started_ms = self.last_started_ms,
             .last_stopped_ms = self.last_stopped_ms,
+            .last_reloaded_ms = self.last_reloaded_ms,
             .last_error = self.last_error,
         };
+    }
+
+    pub fn reload(self: *Self) void {
+        const was_running = self.running;
+        self.stop();
+        self.reload_count += 1;
+        self.last_reloaded_ms = std.time.milliTimestamp();
+        if (was_running) self.start();
     }
 
     pub fn subscribeStream(self: *Self, event_bus: framework.EventBus) anyerror!u64 {
@@ -182,6 +205,7 @@ pub const GatewayHost = struct {
             return;
         };
         defer server.deinit();
+        self.markListenerReady();
 
         while (!self.stop_requested.load(.acquire)) {
             var conn = server.accept() catch |err| {
@@ -195,6 +219,12 @@ pub const GatewayHost = struct {
     }
 
     fn handleConnection(self: *Self, stream: *std.net.Stream) void {
+        self.active_connections += 1;
+        defer {
+            if (self.active_connections > 0) {
+                self.active_connections -= 1;
+            }
+        }
         var buf: [8192]u8 = undefined;
         const n = stream.read(&buf) catch return;
         if (n == 0) return;
@@ -416,6 +446,12 @@ pub const GatewayHost = struct {
         if (self.last_error) |last_error| self.allocator.free(last_error);
         self.last_error = self.allocator.dupe(u8, message) catch null;
     }
+
+    fn markListenerReady(self: *Self) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.listener_ready = true;
+    }
 };
 
 const TestClientEvents = struct {
@@ -499,6 +535,17 @@ test "gateway host tracks running state" {
     defer host.deinit();
     host.start();
     try std.testing.expect(host.status().running);
+    try std.testing.expect(host.status().reload_count == 0);
     host.stop();
     try std.testing.expect(!host.status().running);
+}
+
+test "gateway host reload records listener lifecycle metadata" {
+    var host = try GatewayHost.init(std.testing.allocator, "127.0.0.1", 0);
+    defer host.deinit();
+    host.start();
+    host.reload();
+    const status = host.status();
+    try std.testing.expect(status.reload_count >= 1);
+    try std.testing.expect(status.last_reloaded_ms != null);
 }

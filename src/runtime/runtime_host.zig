@@ -7,6 +7,7 @@ const cron = @import("cron.zig");
 pub const RuntimeHostStatus = struct {
     running: bool,
     gateway_running: bool,
+    gateway_listener_ready: bool,
     gateway_handler_attached: bool,
     loop_active: bool,
     start_count: usize,
@@ -82,6 +83,7 @@ pub const RuntimeHost = struct {
         return .{
             .running = self.running,
             .gateway_running = self.gateway.running,
+            .gateway_listener_ready = self.gateway.listener_ready,
             .gateway_handler_attached = self.gateway.handler != null,
             .loop_active = self.loop_thread != null,
             .start_count = self.start_count,
@@ -90,6 +92,10 @@ pub const RuntimeHost = struct {
             .last_started_ms = self.last_started_ms,
             .last_stopped_ms = self.last_stopped_ms,
         };
+    }
+
+    pub fn reloadGateway(self: *RuntimeHost) void {
+        self.gateway.reload();
     }
 
     fn loopMain(self: *RuntimeHost) void {

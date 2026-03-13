@@ -20,15 +20,24 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(ctx.allocator);
     const writer = buf.writer(ctx.allocator);
-    try writer.print("{{\"running\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"requestCount\":{d},\"streamSubscriptions\":{d},\"handlerAttached\":{s},\"lastStartedMs\":", .{
+    try writer.print("{{\"running\":{s},\"listenerReady\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"requestCount\":{d},\"activeConnections\":{d},\"streamSubscriptions\":{d},\"handlerAttached\":{s},\"reloadCount\":{d},\"lastStartedMs\":", .{
         if (status.running) "true" else "false",
+        if (status.listener_ready) "true" else "false",
         status.bind_host,
         status.bind_port,
         status.request_count,
+        status.active_connections,
         status.stream_subscriptions,
         if (status.handler_attached) "true" else "false",
+        status.reload_count,
     });
     if (status.last_started_ms) |value| {
+        try writer.print("{d}", .{value});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"lastReloadedMs\":");
+    if (status.last_reloaded_ms) |value| {
         try writer.print("{d}", .{value});
     } else {
         try writer.writeAll("null");
