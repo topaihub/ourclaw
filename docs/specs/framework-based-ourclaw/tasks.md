@@ -81,7 +81,7 @@
   - 完成定义：`ourclaw` 的业务 registry 与 runtime 依赖关系清晰，可支撑后续 agent/gateway/service 接入
   - 验证：`ourclaw/src/runtime/app_context.zig` 不再承担共享底座职责，只负责业务装配
 
-- [-] **T2.2 固化 runtime host / gateway host / service manager / daemon 边界**
+- [x] **T2.2 固化 runtime host / gateway host / service manager / daemon 边界**
   - 目标：明确长期运行宿主的职责拆分，避免 host、service、daemon 逻辑缠绕。
   - 主线落点：
     - `ourclaw/src/runtime/runtime_host.zig`
@@ -96,10 +96,16 @@
   - 参考目的：对照 Zig 平台服务管理与产品级 gateway/service 宿主职责拆分
   - 完成定义：运行宿主边界清晰，gateway 与 service 管理不再互相侵入
   - 验证：文档与代码中的职责描述一致
+  - 本轮实现（2026-03-13）：
+    - `src/runtime/daemon.zig` 收紧为 `service_manager` 的只读投影视图，不再参与生命周期写操作
+    - `src/commands/service_install.zig` 去掉重复 install 调用，`service.status` 明确输出 `daemonProjected`
+    - `tests/smoke.zig` 补 service/gateway 状态一致性断言
+    - 验证：`zig build test --summary all` 通过（107/107）
+    - 提交：`7c850af` `固化 runtime 与 daemon 边界`
 
 ## 阶段 3：完成 agent runtime 主循环的核心闭环
 
-- [-] **T3.1 扩展 session state 为可支撑 agent turn 的会话模型**
+- [x] **T3.1 扩展 session state 为可支撑 agent turn 的会话模型**
   - 主线落点：`ourclaw/src/domain/session_state.zig`
   - 前置依赖：T2.1
   - 参考文件：
@@ -109,6 +115,13 @@
   - 参考目的：理解会话存储、轮次驱动与产品侧 session 处理语义
   - 完成定义：session 能承载 snapshot / event / summary / usage / tool trace 等最小能力
   - 验证：`session.get` / `session.compact` 相关命令语义更稳定
+  - 本轮实现（2026-03-13）：
+    - `src/domain/session_state.zig` 新增 provider/model/tool/usage/error 等 turn 级快照字段
+    - `src/domain/agent_runtime.zig` 写回 `session.turn.completed`
+    - `src/commands/session_get.zig` 直接暴露 richer session snapshot
+    - `tests/smoke.zig` 补 session.get 对 provider/tool/latency 的断言
+    - 验证：`zig build test --summary all` 通过（108/108）
+    - 提交：`47fbc77` `扩展 session turn 快照模型`
 
 - [x] **T3.2 稳定 stream output / stream registry 的统一输出模型**
   - 主线落点：
@@ -122,7 +135,7 @@
   - 完成定义：text/tool/status/error/final 事件具有稳定事件种类与投影路径
   - 验证：stream 事件可同时支撑 session 写入、event bus 广播和接口投影
 
-- [-] **T3.3 稳定 ToolOrchestrator 合约，并补齐 agent runtime 的多步 tool loop**
+- [x] **T3.3 稳定 ToolOrchestrator 合约，并补齐 agent runtime 的多步 tool loop**
   - 主线落点：
     - `ourclaw/src/domain/tool_orchestrator.zig`
     - `ourclaw/src/domain/agent_runtime.zig`
@@ -134,6 +147,11 @@
   - 参考目的：看 Zig vtable/tool schema 设计与产品化工具治理思路
   - 完成定义：`ToolOrchestrator` 稳定承担工具查找、参数校验、权限检查、执行、结果写回、错误映射；多步 provider → tool → provider loop 明确由 `agent_runtime` 收口，而不是把循环编排职责再次塞回 orchestrator
   - 验证：工具执行不再散落在命令层直调，多步循环职责边界清晰
+  - 本轮实现（2026-03-13）：
+    - `src/domain/tool_orchestrator.zig` 引入 `SingleInvokeRequest` / `invokeSingle()`，显式标记 `single_invocation` 契约
+    - `src/domain/agent_runtime.zig` 抽出 `executeToolRound()`，把多轮 loop、失败写回和 session 快照对齐集中到 runtime
+    - 验证：`zig build test --summary all` 通过（109/109）
+    - 提交：`0e07cda` `收口工具调用与 agent loop 边界`
 
 - [x] **T3.4 稳固 memory runtime 与 agent runtime 基础闭环**
   - 主线落点：
@@ -165,7 +183,7 @@
   - 完成定义：gateway 相关配置具备清晰 schema、运行时解析与 hook 传播路径；与 `T1.3` 的共享配置写回链路保持清晰边界：`T1.3` 负责 `framework/src/config/*`，本任务负责 `ourclaw` 业务 hook
   - 验证：配置变更可映射到 gateway host 状态变化
 
-- [-] **T4.2 完善 daemon / service 生命周期控制**
+- [x] **T4.2 完善 daemon / service 生命周期控制**
   - 主线落点：
     - `ourclaw/src/runtime/service_manager.zig`
     - `ourclaw/src/runtime/daemon.zig`
@@ -177,8 +195,16 @@
   - 参考目的：对照 Zig 与 Node 两种平台服务管理职责模型
   - 完成定义：service install/start/stop/restart/status 生命周期接口统一
   - 验证：service 命令族与 runtime host / daemon 语义一致
+  - 本轮实现（2026-03-13）：
+    - `src/runtime/service_manager.zig` 把 install/start/stop/restart 收口为有返回值的幂等生命周期动作
+    - `src/commands/service_*.zig` 增加 `changed` / `stopApplied` / `startApplied` 等可观察字段
+    - `tests/smoke.zig` 覆盖重复 install/start/stop 与 restart 语义
+    - 验证：`zig build test --summary all` 通过（110/110）
+    - 提交：`521dfbe` `完善 service manager 生命周期语义`
+    - 提交：`8e32bc6` `统一 service 生命周期命令输出`
+    - 提交：`5a6c795` `补充 service lifecycle smoke 覆盖`
 
-- [-] **T4.3 补齐 cron / heartbeat / background runtime 基础语义**
+- [x] **T4.3 补齐 cron / heartbeat / background runtime 基础语义**
   - 主线落点：
     - `ourclaw/src/runtime/cron.zig`
     - `ourclaw/src/runtime/heartbeat.zig`
@@ -189,6 +215,15 @@
   - 参考目的：理解长期调度服务与运行时状态联动方式
   - 完成定义：cron / heartbeat 不再只是占位结构，而具备明确状态、调度与观测语义
   - 验证：相关命令的状态输出与 runtime 内部对象一致
+  - 本轮实现（2026-03-13）：
+    - `src/runtime/heartbeat.zig` 基于 stale window 判断健康，而不是只看是否 beat 过
+    - `src/runtime/cron.zig` 区分 tick 次数与实际执行 job 次数，并加入最小 schedule 间隔判断
+    - `src/commands/cron_tick.zig` 去掉重复 heartbeat 计数，`cron.list` / `heartbeat.status` 输出更多运行态字段
+    - `tests/smoke.zig` 覆盖 tickCount / heartbeatBeatCount / staleAfterMs 等字段
+    - 验证：`zig build test --summary all` 通过（112/112）
+    - 提交：`1960707` `补齐 cron 与 heartbeat 运行时语义`
+    - 提交：`9e4d108` `统一 cron 与 heartbeat 命令状态输出`
+    - 提交：`3ef7a1d` `补充 cron heartbeat smoke 覆盖`
 
 ## 阶段 5：完成入口适配与统一执行闭环
 
@@ -223,7 +258,7 @@
 
 ## 阶段 6：回归整理与文档回写
 
-- [-] **T6.1 为每个阶段回填实现日志与落点回写**
+- [x] **T6.1 为每个阶段回填实现日志与落点回写**
   - 目标：避免未来模型重复实现同一能力。
   - 主线落点：
     - `ourclaw/docs/specs/framework-based-ourclaw/*`
@@ -233,3 +268,7 @@
   - 参考目的：保证实现与规格保持双向映射
   - 完成定义：每个已完成任务都能回写“改了哪些文件、为什么、如何验证、参考了什么”
   - 验证：后续模型只看 spec 与实现日志即可快速定位上下文
+  - 本轮回写（2026-03-13）：
+    - 已把 `T2.2 / T3.1 / T3.3 / T4.2 / T4.3` 的真实状态改为 `[x]`
+    - 已补每个任务的实现摘要、关键文件、验证结果与提交哈希
+    - 已同步把本轮进展写回 `ourclaw/docs/planning/session-resume.md`

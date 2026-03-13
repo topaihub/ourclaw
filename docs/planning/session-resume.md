@@ -310,6 +310,48 @@
 - 仍未完成的是 provider/channel/tool 的真实业务实现、更完整入口协议、会话/流式细节、以及更接近生产级的 agent 运行链路。
 - 现在已经具备“完整业务版详细设计包”的第一版，足以让后续大模型按文档持续推进开发，而不只依赖上下文对话。
 
+## 本轮 spec tasks 执行记录（2026-03-13）
+
+- **T2.2 已完成**：
+  - `daemon` 已收紧为 `service_manager` 的只读投影视图，不再参与生命周期写操作
+  - `service.install` 已去掉重复 install，`service.status` 已显式标记 `daemonProjected`
+  - 验证：`zig build test --summary all` 通过（107/107）
+  - 提交：`7c850af` `固化 runtime 与 daemon 边界`
+
+- **T3.1 已完成**：
+  - `session_state.zig` 已补 turn 级 snapshot 字段：provider/model/tool/usage/error/tool trace
+  - `agent_runtime` 会写回 `session.turn.completed`，`session.get` 已可直接返回 richer session snapshot
+  - 验证：`zig build test --summary all` 通过（108/108）
+  - 提交：`47fbc77` `扩展 session turn 快照模型`
+
+- **T3.3 已完成**：
+  - `ToolOrchestrator` 已显式收口为单次调用合约（`SingleInvokeRequest` / `invokeSingle()`）
+  - 多轮 provider → tool → provider loop 已继续收口在 `agent_runtime`
+  - 验证：`zig build test --summary all` 通过（109/109）
+  - 提交：`0e07cda` `收口工具调用与 agent loop 边界`
+
+- **T4.2 已完成**：
+  - `service_manager` 生命周期动作已具备幂等返回值与更稳定计数
+  - `service.install/start/stop/restart` 命令面已补 `changed` / `stopApplied` / `startApplied`
+  - 验证：`zig build test --summary all` 通过（110/110）
+  - 提交：`521dfbe` `完善 service manager 生命周期语义`
+  - 提交：`8e32bc6` `统一 service 生命周期命令输出`
+  - 提交：`5a6c795` `补充 service lifecycle smoke 覆盖`
+
+- **T4.3 已完成**：
+  - `heartbeat` 健康判断已改为基于 stale window，而不是只看是否 beat 过
+  - `cron` 已区分 tick 次数与实际执行 job 次数，并补最小 schedule 间隔语义
+  - `cron.tick` 已去掉重复 heartbeat 计数，`cron.list` / `heartbeat.status` 已补更多运行态字段
+  - 验证：`zig build test --summary all` 通过（112/112）
+  - 注：测试过程中 `gateway_host` listener 线程在 Windows 下仍会输出一条 `GetLastError(87)` stderr，但构建摘要与测试结果均为成功
+  - 提交：`1960707` `补齐 cron 与 heartbeat 运行时语义`
+  - 提交：`9e4d108` `统一 cron 与 heartbeat 命令状态输出`
+  - 提交：`3ef7a1d` `补充 cron heartbeat smoke 覆盖`
+
+- **T6.1 已完成**：
+  - 已把 `framework-based-ourclaw/tasks.md` 中对应任务状态由 `[-]` 更新为 `[x]`
+  - 已补任务级实现摘要、验证结果和提交哈希，便于后续模型直接续做
+
 ## 建议下一步
 
 1. ✅ **TASK-001 已完成**：已实现更完整的 resume/continue 语义，包括执行状态检查和避免重复执行
