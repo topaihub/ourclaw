@@ -441,6 +441,13 @@
   - smoke 与单元测试已覆盖 alias rewrite、unknown paths 和 source normalization
   - 验证：`zig build test --summary all` 通过（120/120）
 
+- **M2-07 已完成（2026-03-13）**：
+  - `events.poll` / `observer.recent` 已支持 execution/session 关联过滤与字段回显
+  - `events.subscribe` 已显式回显 `topicPrefix`
+  - `metrics.summary` 已补 execution/session/subscription 关联视图
+  - smoke 已补 execution/session 关联链路断言
+  - 验证：`zig build test --summary all` 通过（120/120）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`

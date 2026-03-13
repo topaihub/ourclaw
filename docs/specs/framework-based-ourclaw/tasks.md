@@ -421,7 +421,7 @@
     - 已补 compat import source normalization 测试与 smoke 断言，验证 richer preview/apply 摘要
     - 验证：`zig build test --summary all` 通过（120/120）
 
-- [ ] **M2-07 打通 execution 级 observability 关联键**
+- [x] **M2-07 打通 execution 级 observability 关联键**
   - 目标：让 `execution_id / session_id / subscription_id` 能贯通日志、事件、metrics 与 replay cursor。
   - 主线落点：
     - `framework/src/observability/*`
@@ -437,6 +437,13 @@
   - 参考目的：看 execution/session/subscription 级日志和事件如何贯通控制面
   - 完成定义：logs / events / metrics / observer 能围绕同一个 execution 追踪完整链路
   - 验证：`zig build test --summary all`；补 one-execution correlation 测试
+  - 本轮实现（2026-03-13）：
+    - `events.subscribe` 已补 `topicPrefix` 回显
+    - `events.poll` 已支持 `execution_id / session_id` 过滤，并回显 `executionId / sessionId / subscriptionId`
+    - `observer.recent` 已支持 execution/session 过滤与回显
+    - `metrics.summary` 已补 `subscriptionCount`、`correlatedStreamEvents`、`lastExecutionId`、`lastSessionId`
+    - smoke 已补一条从 `agent.stream` → `events.subscribe/poll` → `observer.recent` → `metrics.summary` 的 execution/session 关联链路断言
+    - 验证：`zig build test --summary all` 通过（120/120）
 
 ### 阶段 M2-C：agent / memory / provider-tool 产品语义
 
