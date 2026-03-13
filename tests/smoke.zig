@@ -266,6 +266,7 @@ test "config migrate preview summarizes legacy alias rewrites" {
     try std.testing.expect(envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"toVersion\":2") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"aliasRewriteCount\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"unknownPaths\":[") != null);
 }
 
 test "config compat import preview reports mapped legacy fields" {
@@ -294,6 +295,7 @@ test "config compat import preview reports mapped legacy fields" {
     try std.testing.expect(envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"sourceKind\":\"nullclaw\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"mappedCount\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"aliasRewriteCount\":2") != null);
 }
 
 test "agent run command drives tool orchestrator and provider runtime" {

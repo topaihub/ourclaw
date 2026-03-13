@@ -17,10 +17,23 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const config_json = ctx.param("config_json").?.value.string;
-    const preview = try config_migration.previewMigration(ctx.allocator, config_json);
+    var prepared = try config_migration.prepareMigration(ctx.allocator, config_json);
+    defer prepared.deinit(ctx.allocator);
+    const preview = prepared.preview;
+
+    var unknown_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer unknown_buf.deinit(ctx.allocator);
+    const unknown_writer = unknown_buf.writer(ctx.allocator);
+    try unknown_writer.writeByte('[');
+    for (prepared.unknown_paths, 0..) |path, index| {
+        if (index > 0) try unknown_writer.writeByte(',');
+        try unknown_writer.print("\"{s}\"", .{path});
+    }
+    try unknown_writer.writeByte(']');
+
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"aliasRewriteCount\":{d},\"unknownCount\":{d}}}",
+        "{{\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"aliasRewriteCount\":{d},\"unknownCount\":{d},\"unknownPaths\":{s}}}",
         .{
             preview.from_version,
             preview.to_version,
@@ -28,6 +41,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
             preview.mapped_count,
             preview.alias_rewrite_count,
             preview.unknown_count,
+            unknown_buf.items,
         },
     );
 }

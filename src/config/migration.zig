@@ -7,12 +7,12 @@ pub const CURRENT_CONFIG_VERSION: u32 = 2;
 const ValidationField = framework.ValidationField;
 const ValidationValue = framework.ValidationValue;
 
-const Alias = struct {
+pub const MigrationAlias = struct {
     legacy_path: []const u8,
     current_path: []const u8,
 };
 
-const ALIASES = [_]Alias{
+const ALIASES = [_]MigrationAlias{
     .{ .legacy_path = "server.host", .current_path = "gateway.host" },
     .{ .legacy_path = "server.port", .current_path = "gateway.port" },
     .{ .legacy_path = "security.require_pairing", .current_path = "gateway.require_pairing" },
@@ -34,6 +34,10 @@ pub const MigrationPreview = struct {
     alias_rewrite_count: usize,
     unknown_count: usize,
 };
+
+pub fn aliases() []const MigrationAlias {
+    return ALIASES[0..];
+}
 
 pub const PreparedMigration = struct {
     preview: MigrationPreview,

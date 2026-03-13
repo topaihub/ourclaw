@@ -31,12 +31,13 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
 
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"applied\":{s},\"changedCount\":{d},\"requiresRestart\":{s}}}",
+        "{{\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"aliasRewriteCount\":{d},\"applied\":{s},\"changedCount\":{d},\"requiresRestart\":{s}}}",
         .{
             result.preview.from_version,
             result.preview.to_version,
             if (result.preview.changed) "true" else "false",
             result.preview.mapped_count,
+            result.preview.alias_rewrite_count,
             if (result.attempt.applied()) "true" else "false",
             if (result.attempt.stats) |stats| stats.changed_count else 0,
             if (result.attempt.requiresRestart()) "true" else "false",

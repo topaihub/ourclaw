@@ -36,13 +36,14 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         const preview = try compat_import.previewImport(ctx.allocator, source_kind, source_json);
         return std.fmt.allocPrint(
             ctx.allocator,
-            "{{\"sourceKind\":\"{s}\",\"preview\":true,\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"unknownCount\":{d}}}",
+            "{{\"sourceKind\":\"{s}\",\"preview\":true,\"fromVersion\":{d},\"toVersion\":{d},\"changed\":{s},\"mappedCount\":{d},\"aliasRewriteCount\":{d},\"unknownCount\":{d}}}",
             .{
                 @tagName(preview.source_kind),
                 preview.migration_preview.from_version,
                 preview.migration_preview.to_version,
                 if (preview.migration_preview.changed) "true" else "false",
                 preview.migration_preview.mapped_count,
+                preview.migration_preview.alias_rewrite_count,
                 preview.migration_preview.unknown_count,
             },
         );
@@ -54,10 +55,11 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
 
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"sourceKind\":\"{s}\",\"preview\":false,\"mappedCount\":{d},\"applied\":{s},\"changedCount\":{d}}}",
+        "{{\"sourceKind\":\"{s}\",\"preview\":false,\"mappedCount\":{d},\"aliasRewriteCount\":{d},\"applied\":{s},\"changedCount\":{d}}}",
         .{
             @tagName(source_kind),
             result.preview.mapped_count,
+            result.preview.alias_rewrite_count,
             if (result.attempt.applied()) "true" else "false",
             if (result.attempt.stats) |stats| stats.changed_count else 0,
         },
