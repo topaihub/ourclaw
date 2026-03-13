@@ -9,7 +9,7 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const app: *@import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
-    app.service_manager.start();
+    const changed = app.service_manager.start();
     const status = app.service_manager.status();
-    return std.fmt.allocPrint(ctx.allocator, "{{\"started\":true,\"runtimeRunning\":{s},\"startCount\":{d}}}", .{ if (status.runtime_running) "true" else "false", status.start_count });
+    return std.fmt.allocPrint(ctx.allocator, "{{\"started\":true,\"runtimeRunning\":{s},\"startCount\":{d},\"changed\":{s}}}", .{ if (status.runtime_running) "true" else "false", status.start_count, if (changed) "true" else "false" });
 }
