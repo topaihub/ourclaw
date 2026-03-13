@@ -378,6 +378,48 @@ test "agent stream command returns stream event snapshot" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"events\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "stream.output") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "final response after tool") != null);
+
+    const sub_params = [_]framework.ValidationField{
+        .{ .key = "topic_prefix", .value = .{ .string = "stream.output" } },
+        .{ .key = "after_seq", .value = .{ .integer = 0 } },
+    };
+    const subscribe = try dispatcher.dispatch(.{ .request_id = "req_events_subscribe_corr", .method = "events.subscribe", .params = sub_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer switch (subscribe.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(subscribe.ok);
+    try std.testing.expect(std.mem.indexOf(u8, subscribe.result.?.success_json, "\"topicPrefix\":\"stream.output\"") != null);
+
+    const poll_params = [_]framework.ValidationField{
+        .{ .key = "subscription_id", .value = .{ .integer = 2 } },
+        .{ .key = "session_id", .value = .{ .string = "sess_agent_stream" } },
+    };
+    const poll = try dispatcher.dispatch(.{ .request_id = "req_events_poll_corr", .method = "events.poll", .params = poll_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer switch (poll.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(poll.ok);
+    try std.testing.expect(std.mem.indexOf(u8, poll.result.?.success_json, "\"sessionId\":\"sess_agent_stream\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, poll.result.?.success_json, "\"subscriptionId\":2") != null);
+
+    const observer = try dispatcher.dispatch(.{ .request_id = "req_observer_recent_corr", .method = "observer.recent", .params = &.{.{ .key = "session_id", .value = .{ .string = "sess_agent_stream" } }}, .source = .@"test", .authority = .admin }, false);
+    defer switch (observer.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(observer.ok);
+    try std.testing.expect(std.mem.indexOf(u8, observer.result.?.success_json, "\"sessionId\":\"sess_agent_stream\"") != null);
+
+    const metrics = try dispatcher.dispatch(.{ .request_id = "req_metrics_summary_corr", .method = "metrics.summary", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (metrics.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(metrics.ok);
+    try std.testing.expect(std.mem.indexOf(u8, metrics.result.?.success_json, "\"correlatedStreamEvents\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, metrics.result.?.success_json, "\"lastSessionId\":sess_agent_stream") == null);
 }
 
 test "task query commands return queued task summary" {

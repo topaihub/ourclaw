@@ -21,11 +21,16 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const prefix = if (ctx.param("topic_prefix")) |field| field.value.string else null;
     const after_seq: u64 = if (ctx.param("after_seq")) |field| @intCast(field.value.integer) else services.framework_context.event_bus.latestSeq();
+    const topic_prefix_json = if (prefix) |value|
+        try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{value})
+    else
+        try ctx.allocator.dupe(u8, "null");
+    defer ctx.allocator.free(topic_prefix_json);
 
     const subscription_id = if (prefix) |topic_prefix|
         try services.framework_context.event_bus.subscribe(&.{topic_prefix}, after_seq)
     else
         try services.framework_context.event_bus.subscribe(&.{}, after_seq);
 
-    return std.fmt.allocPrint(ctx.allocator, "{{\"subscriptionId\":{d},\"afterSeq\":{d},\"subscriptionCount\":{d}}}", .{ subscription_id, after_seq, services.framework_context.event_bus.subscriptionCount() });
+    return std.fmt.allocPrint(ctx.allocator, "{{\"subscriptionId\":{d},\"afterSeq\":{d},\"subscriptionCount\":{d},\"topicPrefix\":{s}}}", .{ subscription_id, after_seq, services.framework_context.event_bus.subscriptionCount(), topic_prefix_json });
 }
