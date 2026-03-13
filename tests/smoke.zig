@@ -821,6 +821,16 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(install.ok);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"installCount\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"daemonProjected\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"changed\":true") != null);
+
+    const install_again = try dispatcher.dispatch(.{ .request_id = "req_service_install_again", .method = "service.install", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (install_again.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(install_again.ok);
+    try std.testing.expect(std.mem.indexOf(u8, install_again.result.?.success_json, "\"installCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install_again.result.?.success_json, "\"changed\":false") != null);
 
     const start = try dispatcher.dispatch(.{ .request_id = "req_service_start", .method = "service.start", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (start.result.?) {
@@ -828,6 +838,16 @@ test "service and gateway control commands mutate runtime state" {
         .task_accepted => {},
     };
     try std.testing.expect(start.ok);
+    try std.testing.expect(std.mem.indexOf(u8, start.result.?.success_json, "\"changed\":true") != null);
+
+    const start_again = try dispatcher.dispatch(.{ .request_id = "req_service_start_again", .method = "service.start", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (start_again.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(start_again.ok);
+    try std.testing.expect(std.mem.indexOf(u8, start_again.result.?.success_json, "\"startCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, start_again.result.?.success_json, "\"changed\":false") != null);
 
     const service_status = try dispatcher.dispatch(.{ .request_id = "req_service_status", .method = "service.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (service_status.result.?) {
@@ -837,6 +857,32 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(service_status.ok);
     try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"daemonProjected\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"installCount\":1") != null);
+
+    const stop = try dispatcher.dispatch(.{ .request_id = "req_service_stop", .method = "service.stop", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (stop.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(stop.ok);
+    try std.testing.expect(std.mem.indexOf(u8, stop.result.?.success_json, "\"changed\":true") != null);
+
+    const stop_again = try dispatcher.dispatch(.{ .request_id = "req_service_stop_again", .method = "service.stop", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (stop_again.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(stop_again.ok);
+    try std.testing.expect(std.mem.indexOf(u8, stop_again.result.?.success_json, "\"stopCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stop_again.result.?.success_json, "\"changed\":false") != null);
+
+    const restart = try dispatcher.dispatch(.{ .request_id = "req_service_restart", .method = "service.restart", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (restart.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(restart.ok);
+    try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"restartCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"startApplied\":true") != null);
 
     const gateway_status = try dispatcher.dispatch(.{ .request_id = "req_gateway_status", .method = "gateway.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_status.result.?) {
