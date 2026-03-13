@@ -29,6 +29,18 @@ pub fn parseValue(allocator: std.mem.Allocator, kind: ValueKind, raw: []const u8
     return framework.ConfigValueParser.parseRawValue(allocator, kind, raw);
 }
 
+pub fn loadSnapshotJson(allocator: std.mem.Allocator, json_text: []const u8) anyerror![]framework.ValidationField {
+    return framework.ConfigLoader.loadSnapshotJson(allocator, json_text, field_registry.ConfigFieldRegistry.fieldDefinitions());
+}
+
+pub fn loadSnapshotFile(allocator: std.mem.Allocator, file_path: []const u8) anyerror![]framework.ValidationField {
+    return framework.ConfigLoader.loadSnapshotFile(allocator, file_path, field_registry.ConfigFieldRegistry.fieldDefinitions());
+}
+
+pub fn loadEnvOverrides(allocator: std.mem.Allocator, prefix: []const u8) anyerror![]framework.ValidationField {
+    return framework.ConfigLoader.loadEnvOverrides(allocator, field_registry.ConfigFieldRegistry.fieldDefinitions(), prefix);
+}
+
 pub fn fieldDefinitions() []const framework.FieldDefinition {
     return field_registry.ConfigFieldRegistry.fieldDefinitions();
 }
@@ -48,4 +60,13 @@ test "config runtime exposes stable bootstrap defaults" {
     const stats = try bootstrapDefaults(std.testing.allocator, store.asConfigStore());
     try std.testing.expectEqual(field_registry.ConfigFieldRegistry.defaultEntries().len, stats.applied_count);
     try std.testing.expectEqual(@as(i64, 8080), store.get("gateway.port").?.integer);
+}
+
+test "config runtime loads snapshot json with nested objects" {
+    const fields = try loadSnapshotJson(std.testing.allocator, "{\"gateway\":{\"host\":\"0.0.0.0\",\"port\":9091}}");
+    defer {
+        for (fields) |field| field.deinit(std.testing.allocator);
+        std.testing.allocator.free(fields);
+    }
+    try std.testing.expect(fields.len >= 2);
 }
