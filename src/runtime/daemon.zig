@@ -45,7 +45,7 @@ test "daemon reflects service status" {
     var host = @import("runtime_host.zig").RuntimeHost.init(&gateway_host, &hb, &scheduler);
     var manager = service_manager.ServiceManager.init(&host);
     var daemon = Daemon.init(&manager);
-    manager.install();
+    _ = manager.install();
     try std.testing.expect(daemon.status().installed);
     try std.testing.expectEqual(@as(usize, 1), daemon.status().install_count);
 }
