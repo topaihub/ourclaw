@@ -448,6 +448,12 @@
   - smoke 已补 execution/session 关联链路断言
   - 验证：`zig build test --summary all` 通过（120/120）
 
+- **M2-08 已完成（2026-03-13）**：
+  - prompt assembly 已从最小 system prompt 进化到 profile / identity / response mode / session snapshot 驱动
+  - `agent_runtime` 已把这些上下文接入 prompt 组装阶段
+  - prompt assembly 单测已覆盖 profile / identity / mode / session snapshot 文本变体
+  - 验证：`zig build test --summary all` 通过（120/120）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`

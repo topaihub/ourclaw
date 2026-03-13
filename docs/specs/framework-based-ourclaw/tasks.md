@@ -447,7 +447,7 @@
 
 ### 阶段 M2-C：agent / memory / provider-tool 产品语义
 
-- [ ] **M2-08 实现 prompt profile / identity-driven prompt assembly**
+- [x] **M2-08 实现 prompt profile / identity-driven prompt assembly**
   - 目标：让 system prompt 不再只是固定拼接，而是受 channel、identity、session snapshot、response mode 共同驱动。
   - 主线落点：
     - `ourclaw/src/domain/prompt_assembly.zig`
@@ -462,6 +462,12 @@
   - 参考目的：看 session patch / identity / mode 如何影响 agent prompt 与响应语义
   - 完成定义：prompt profile / identity / session mode 会真实改变 provider 请求内容
   - 验证：`zig build test --summary all`；补多 profile / 多 identity / mode regression 测试
+  - 本轮实现（2026-03-13）：
+    - `src/domain/prompt_assembly.zig` 已补 `PromptProfile`、`ResponseMode`、`channel_id`、`identity_label`、`session_event_count`、`tool_trace_count`
+    - `buildSystemPrompt()` 现在会把 profile / identity / channel / response mode / session snapshot 明确写入 system prompt
+    - `src/domain/agent_runtime.zig` 已把 `prompt_profile`、`channel_id`、`identity_label`、`response_mode` 接入请求模型，并在组 prompt 前读取 session snapshot 注入 prompt assembly
+    - prompt assembly 单测已补 profile / identity / mode / session snapshot 的断言
+    - 验证：`zig build test --summary all` 通过（120/120）
 
 - [ ] **M2-09 收口 retrieval / embeddings / memory ranking**
   - 目标：让 memory recall 不再只是最小 summary/retrieve，而具备 embeddings 抽象、检索排序、迁移与写回闭环。
