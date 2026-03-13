@@ -405,6 +405,13 @@
   - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md` 中新增的 `M2-01` ~ `M2-10`
   - 后续执行时，应继续按“主线落点 + 参考文件 + 验证方式”推进，而不是回到旧 gap 文档重新猜测
 
+- **M2-01 已完成（2026-03-13）**：
+  - `stream_projection.zig` 已把 Bridge / WebSocket 的 replay / resume / execution attach 语义补齐到和 SSE 一致
+  - Bridge 现在不再在已有执行时直接返回 `already_running` 失败，而是可以对 running execution 重附着，或按 legacy `last_event_id` 进入 replay-only
+  - WebSocket 现在也支持 legacy replay-only 与 execution cursor resume
+  - 已新增 bridge replay-only、bridge execution resume、ws replay-only 三条 stream projection 测试
+  - 验证：`zig build test --summary all` 通过（115/115）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`

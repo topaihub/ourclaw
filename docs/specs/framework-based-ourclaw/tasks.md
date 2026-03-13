@@ -284,7 +284,7 @@
 
 ### 阶段 M2-A：协议恢复与长期运行宿主
 
-- [ ] **M2-01 收口 execution reconnect / resume**
+- [x] **M2-01 收口 execution reconnect / resume**
   - 目标：让 SSE / WebSocket / bridge 的重连能重新附着同一 `execution_id`，而不是重复触发新的 agent run。
   - 主线落点：
     - `ourclaw/src/interfaces/stream_projection.zig`
@@ -300,6 +300,12 @@
   - 参考目的：看 execution attach/reconnect、session 恢复、流式 replay / runtime cursor 的产品化处理方式
   - 完成定义：同一执行可被 replay / resume / reconnect 附着，且不会重复触发 provider/tool 执行
   - 验证：`zig build test --summary all`；补 happy-path / invalid attach / disconnect-resume 三类测试
+  - 本轮实现（2026-03-13）：
+    - `src/interfaces/stream_projection.zig` 已把 Bridge / WebSocket 的 reconnect 语义补齐到与 SSE 对齐
+    - Bridge 现在支持：`replay_only`、`execution_id:after_seq` 形式的 execution cursor resume、以及对 running execution 的重附着
+    - WebSocket 现在支持：legacy `last_event_id` replay-only、running execution resume、以及 execution cursor resume
+    - 已新增 stream projection 级测试，覆盖 bridge replay-only、bridge execution resume、ws replay-only
+    - 验证：`zig build test --summary all` 通过（115/115）
 
 - [ ] **M2-02 统一 CLI / Bridge / HTTP 的 auth / route / error 映射表**
   - 目标：保证同一命令跨入口的 authority、accepted/error/success 语义一致，减少入口层协议漂移。
