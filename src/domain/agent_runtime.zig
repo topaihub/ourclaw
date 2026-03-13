@@ -84,6 +84,10 @@ pub const AgentRuntime = struct {
     tool_orchestrator: *ToolOrchestrator,
 
     const Self = @This();
+    const ToolRoundSource = enum {
+        request_seed,
+        provider_loop,
+    };
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -125,6 +129,10 @@ pub const AgentRuntime = struct {
         const started_at = std.time.milliTimestamp();
         const event_start_index = self.session_store.countEvents(request.session_id);
 
+        errdefer |run_err| {
+            self.publishRunFailure(request.session_id, request.stream_execution_id, run_err) catch {};
+        }
+
         _ = try self.stream_output.publishWithExecution(
             request.session_id,
             request.stream_execution_id,
@@ -146,32 +154,46 @@ pub const AgentRuntime = struct {
         var selected_model = try self.allocator.dupe(u8, request.model orelse "");
         defer self.allocator.free(selected_model);
         var tool_rounds: usize = 0;
+        var provider_rounds: usize = 0;
 
         if (request.tool_id) |tool_id| {
-            const initial_tool_payload = request.tool_input_json orelse "{}";
-            const initial_tool_result = try self.tool_orchestrator.invokeWithExecution(
-                request.session_id,
-                request.stream_execution_id,
+            try self.executeToolRound(
+                request,
                 tool_id,
-                initial_tool_payload,
-                request.authority,
+                request.tool_input_json orelse "{}",
+                .request_seed,
+                provider_rounds,
+                &tool_id_owned,
+                &tool_result_json,
+                &tool_rounds,
             );
-            tool_result_json = initial_tool_result;
-            tool_id_owned = try self.allocator.dupe(u8, tool_id);
-            tool_rounds = 1;
-            try self.memory_runtime.appendToolResult(request.session_id, tool_id, initial_tool_result);
         }
 
-        var round: usize = 0;
-        while (true) : (round += 1) {
+        while (true) {
+            provider_rounds += 1;
             const provider_supports_tools = self.provider_registry.supportsTools(request.provider_id) catch false;
+            const provider_tools_enabled = request.allow_provider_tools and provider_supports_tools;
+
+            const provider_round_started_payload = try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"phase\":\"provider.round.started\",\"round\":{d},\"providerToolsEnabled\":{s}}}",
+                .{ provider_rounds, if (provider_tools_enabled) "true" else "false" },
+            );
+            defer self.allocator.free(provider_round_started_payload);
+            _ = try self.stream_output.publishWithExecution(
+                request.session_id,
+                request.stream_execution_id,
+                "status.update",
+                provider_round_started_payload,
+            );
+
             var assembled = try prompt_assembly.build(self.allocator, .{
                 .session_id = request.session_id,
                 .user_prompt = request.prompt,
                 .authority = request.authority,
                 .recall_summary = if (recall.entry_count > 0) recall.summary_text else null,
                 .tool_result_json = tool_result_json,
-                .allow_provider_tools = request.allow_provider_tools and provider_supports_tools,
+                .allow_provider_tools = provider_tools_enabled,
                 .tool_registry = self.tool_orchestrator.tool_registry,
             });
             defer assembled.deinit(self.allocator);
@@ -182,73 +204,62 @@ pub const AgentRuntime = struct {
                 .provider_id = request.provider_id,
                 .model = request.model,
                 .messages = messages[0..],
-                .enable_tools = request.allow_provider_tools and provider_supports_tools,
+                .enable_tools = provider_tools_enabled,
             });
             defer provider_response.deinit(self.allocator);
 
             self.allocator.free(selected_model);
             selected_model = try self.allocator.dupe(u8, provider_response.model);
 
-            const stream_chunks = try self.provider_registry.chatStream(self.allocator, .{
-                .provider_id = request.provider_id,
-                .model = request.model,
-                .messages = messages[0..],
-                .enable_tools = request.allow_provider_tools and provider_supports_tools,
-            });
-            defer {
-                for (stream_chunks) |*chunk| chunk.deinit(self.allocator);
-                self.allocator.free(stream_chunks);
-            }
-
-            var text_buf: std.ArrayListUnmanaged(u8) = .empty;
-            defer text_buf.deinit(self.allocator);
-            for (stream_chunks) |chunk| {
-                switch (chunk.kind) {
-                    .text_delta => if (chunk.text) |text| {
-                        if (text_buf.items.len > 0) {
-                            try text_buf.append(self.allocator, ' ');
-                        }
-                        try text_buf.appendSlice(self.allocator, text);
-                        const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{text});
-                        defer self.allocator.free(payload);
-                        _ = try self.stream_output.publishWithExecution(
-                            request.session_id,
-                            request.stream_execution_id,
-                            "text.delta",
-                            payload,
-                        );
-                    },
-                    .tool_call => if (chunk.tool_name) |tool_name| {
-                        try self.session_store.appendEvent(request.session_id, "provider.tool_call", tool_name);
-                    },
-                    .done => {},
-                }
-            }
+            const provider_round_completed_payload = try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"round\":{d},\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolRequested\":{s}}}",
+                .{ provider_rounds, request.provider_id, provider_response.model, if (provider_response.tool_name != null) "true" else "false" },
+            );
+            defer self.allocator.free(provider_round_completed_payload);
+            _ = try self.stream_output.publishWithExecution(
+                request.session_id,
+                request.stream_execution_id,
+                "provider.round.completed",
+                provider_round_completed_payload,
+            );
 
             if (provider_response.tool_name) |provider_tool_name| {
-                if (round >= request.max_tool_rounds) return error.ToolLoopLimitReached;
-                if (tool_id_owned) |owned_tool_id| self.allocator.free(owned_tool_id);
-                tool_id_owned = try self.allocator.dupe(u8, provider_tool_name);
-                if (tool_result_json) |owned_tool_result| self.allocator.free(owned_tool_result);
                 const tool_payload = provider_response.tool_input_json orelse "{}";
-                const next_tool_result = try self.tool_orchestrator.invokeWithExecution(
+                const provider_tool_payload = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"round\":{d},\"toolId\":\"{s}\",\"toolInput\":{s}}}",
+                    .{ provider_rounds, provider_tool_name, tool_payload },
+                );
+                defer self.allocator.free(provider_tool_payload);
+                _ = try self.stream_output.publishWithExecution(
                     request.session_id,
                     request.stream_execution_id,
+                    "provider.tool.call",
+                    provider_tool_payload,
+                );
+
+                if (!provider_tools_enabled) {
+                    return error.ProviderToolCallNotAllowed;
+                }
+
+                try self.executeToolRound(
+                    request,
                     provider_tool_name,
                     tool_payload,
-                    request.authority,
+                    .provider_loop,
+                    provider_rounds,
+                    &tool_id_owned,
+                    &tool_result_json,
+                    &tool_rounds,
                 );
-                tool_result_json = next_tool_result;
-                tool_rounds += 1;
-                try self.memory_runtime.appendToolResult(request.session_id, provider_tool_name, next_tool_result);
                 continue;
             }
 
+            try self.publishProviderTextDeltas(request.session_id, request.stream_execution_id, provider_response.text);
+
             self.allocator.free(final_text);
-            final_text = if (text_buf.items.len > 0)
-                try self.allocator.dupe(u8, text_buf.items)
-            else
-                try self.allocator.dupe(u8, provider_response.text);
+            final_text = try self.allocator.dupe(u8, provider_response.text);
 
             const final_payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{final_text});
             defer self.allocator.free(final_payload);
@@ -267,30 +278,155 @@ pub const AgentRuntime = struct {
         const turn_payload = if (tool_id_owned) |tool_id|
             try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolId\":\"{s}\",\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, tool_id, tool_rounds, provider_latency_ms, recall.entry_count },
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"toolId\":\"{s}\",\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, provider_rounds, tool_id, tool_rounds, provider_latency_ms, recall.entry_count },
             )
         else
             try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolId\":null,\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, tool_rounds, provider_latency_ms, recall.entry_count },
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"toolId\":null,\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, provider_rounds, tool_rounds, provider_latency_ms, recall.entry_count },
             );
         defer self.allocator.free(turn_payload);
-        try self.session_store.appendEvent(request.session_id, "session.turn.completed", turn_payload);
+        _ = try self.stream_output.publishWithExecution(
+            request.session_id,
+            request.stream_execution_id,
+            "session.turn.completed",
+            turn_payload,
+        );
+
+        var turn_snapshot = try self.session_store.snapshotMeta(self.allocator, request.session_id);
+        defer turn_snapshot.deinit(self.allocator);
+        const snapshot_status_payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"phase\":\"session.snapshot.updated\",\"eventCount\":{d},\"toolTraceCount\":{d},\"toolRounds\":{d}}}",
+            .{ turn_snapshot.event_count, turn_snapshot.tool_trace_count, turn_snapshot.latest_tool_rounds },
+        );
+        defer self.allocator.free(snapshot_status_payload);
+        _ = try self.stream_output.publishWithExecution(
+            request.session_id,
+            request.stream_execution_id,
+            "status.update",
+            snapshot_status_payload,
+        );
 
         const events = try self.session_store.snapshotSince(self.allocator, request.session_id, event_start_index);
+        const resolved_tool_rounds = if (turn_snapshot.latest_tool_rounds > 0)
+            turn_snapshot.latest_tool_rounds
+        else
+            tool_rounds;
+        const resolved_memory_entries_used = if (turn_snapshot.latest_memory_entries_used > 0)
+            turn_snapshot.latest_memory_entries_used
+        else
+            recall.entry_count;
         return .{
             .session_id = try self.allocator.dupe(u8, request.session_id),
             .provider_id = try self.allocator.dupe(u8, request.provider_id),
             .model = try self.allocator.dupe(u8, selected_model),
             .final_response_text = try self.allocator.dupe(u8, final_text),
-            .tool_id = if (tool_id_owned) |tool_id| tool_id else null,
-            .tool_result_json = tool_result_json,
-            .tool_rounds = tool_rounds,
+            .tool_id = if (tool_id_owned) |tool_id|
+                tool_id
+            else if (turn_snapshot.latest_tool_id) |snapshot_tool_id|
+                try self.allocator.dupe(u8, snapshot_tool_id)
+            else
+                null,
+            .tool_result_json = if (tool_result_json) |owned_tool_result|
+                owned_tool_result
+            else if (turn_snapshot.latest_tool_result_json) |snapshot_tool_result|
+                try self.allocator.dupe(u8, snapshot_tool_result)
+            else
+                null,
+            .tool_rounds = resolved_tool_rounds,
             .provider_latency_ms = provider_latency_ms,
-            .memory_entries_used = recall.entry_count,
+            .memory_entries_used = resolved_memory_entries_used,
             .events = events,
+        };
+    }
+
+    fn executeToolRound(
+        self: *Self,
+        request: AgentRunRequest,
+        tool_id: []const u8,
+        tool_input_json: []const u8,
+        source: ToolRoundSource,
+        provider_round: usize,
+        tool_id_owned: *?[]u8,
+        tool_result_json: *?[]u8,
+        tool_rounds: *usize,
+    ) anyerror!void {
+        if (tool_rounds.* >= request.max_tool_rounds) {
+            return error.ToolLoopLimitReached;
+        }
+
+        const next_tool_round = tool_rounds.* + 1;
+        const loop_started_payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"source\":\"{s}\",\"providerRound\":{d},\"toolRound\":{d},\"toolId\":\"{s}\",\"input\":{s}}}",
+            .{ roundSourceText(source), provider_round, next_tool_round, tool_id, tool_input_json },
+        );
+        defer self.allocator.free(loop_started_payload);
+        _ = try self.stream_output.publishWithExecution(
+            request.session_id,
+            request.stream_execution_id,
+            "tool.loop.requested",
+            loop_started_payload,
+        );
+
+        const next_tool_result = try self.tool_orchestrator.invokeSingle(.{
+            .session_id = request.session_id,
+            .execution_id = request.stream_execution_id,
+            .tool_id = tool_id,
+            .input_json = tool_input_json,
+            .authority = request.authority,
+        });
+
+        if (tool_id_owned.*) |owned_tool_id| self.allocator.free(owned_tool_id);
+        tool_id_owned.* = try self.allocator.dupe(u8, tool_id);
+        if (tool_result_json.*) |owned_tool_result| self.allocator.free(owned_tool_result);
+        tool_result_json.* = next_tool_result;
+        tool_rounds.* = next_tool_round;
+        try self.memory_runtime.appendToolResult(request.session_id, tool_id, next_tool_result);
+
+        const loop_completed_payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"source\":\"{s}\",\"providerRound\":{d},\"toolRound\":{d},\"toolId\":\"{s}\",\"result\":{s}}}",
+            .{ roundSourceText(source), provider_round, next_tool_round, tool_id, next_tool_result },
+        );
+        defer self.allocator.free(loop_completed_payload);
+        _ = try self.stream_output.publishWithExecution(
+            request.session_id,
+            request.stream_execution_id,
+            "tool.loop.completed",
+            loop_completed_payload,
+        );
+    }
+
+    fn publishProviderTextDeltas(self: *Self, session_id: []const u8, execution_id: ?[]const u8, response_text: []const u8) anyerror!void {
+        var parts = std.mem.splitScalar(u8, response_text, ' ');
+        while (parts.next()) |part| {
+            if (part.len == 0) continue;
+            const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{part});
+            defer self.allocator.free(payload);
+            _ = try self.stream_output.publishWithExecution(session_id, execution_id, "text.delta", payload);
+        }
+    }
+
+    fn publishRunFailure(self: *Self, session_id: []const u8, execution_id: ?[]const u8, run_err: anyerror) anyerror!void {
+        const code = @errorName(run_err);
+        const payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"stage\":\"agent_runtime\",\"errorCode\":\"{s}\",\"message\":\"{s}\"}}",
+            .{ code, code },
+        );
+        defer self.allocator.free(payload);
+        _ = self.stream_output.publishWithExecution(session_id, execution_id, "error", payload) catch {};
+        _ = self.stream_output.publishWithExecution(session_id, execution_id, "session.turn.failed", payload) catch {};
+    }
+
+    fn roundSourceText(source: ToolRoundSource) []const u8 {
+        return switch (source) {
+            .request_seed => "request_seed",
+            .provider_loop => "provider_loop",
         };
     }
 };
@@ -384,6 +520,55 @@ test "agent runtime supports provider to tool to provider loop" {
     try std.testing.expectEqualStrings("final response after tool", result.response_text);
     try std.testing.expect(result.tool_id != null);
     try std.testing.expect(result.tool_rounds >= 1);
+
+    const events = session_store.find("sess_agent_loop").?.events.items;
+    try std.testing.expect(hasEventKind(events, "provider.tool.call"));
+    try std.testing.expect(hasEventKind(events, "tool.loop.requested"));
+    try std.testing.expect(hasEventKind(events, "tool.loop.completed"));
+    try std.testing.expect(hasEventKind(events, "session.turn.completed"));
+
+    var snapshot = try session_store.snapshotMeta(std.testing.allocator, "sess_agent_loop");
+    defer snapshot.deinit(std.testing.allocator);
+    try std.testing.expect(snapshot.latest_tool_id != null);
+    try std.testing.expectEqualStrings("echo", snapshot.latest_tool_id.?);
+    try std.testing.expect(snapshot.latest_tool_result_json != null);
+    try std.testing.expect(snapshot.latest_model != null);
+    try std.testing.expect(snapshot.latest_tool_rounds >= 1);
+}
+
+test "agent runtime writes failed turn when tool loop limit is hit" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ToolLoopLimitReached, runtime.run(.{
+        .session_id = "sess_agent_loop_limit",
+        .prompt = "hello",
+        .provider_id = "provider_unused",
+        .tool_id = "echo",
+        .tool_input_json = "{\"message\":\"hi\"}",
+        .max_tool_rounds = 0,
+    }));
+
+    const events = session_store.find("sess_agent_loop_limit").?.events.items;
+    try std.testing.expect(hasEventKind(events, "error"));
+    try std.testing.expect(hasEventKind(events, "session.turn.failed"));
+
+    var snapshot = try session_store.snapshotMeta(std.testing.allocator, "sess_agent_loop_limit");
+    defer snapshot.deinit(std.testing.allocator);
+    try std.testing.expect(snapshot.last_error_code != null);
+    try std.testing.expectEqualStrings("ToolLoopLimitReached", snapshot.last_error_code.?);
 }
 
 test "agent runtime injects system and tools prompt into provider payload" {
@@ -424,4 +609,11 @@ test "agent runtime injects system and tools prompt into provider payload" {
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expectEqualStrings("prompt assembly ok", result.response_text);
+}
+
+fn hasEventKind(events: []const session_state.SessionEvent, kind: []const u8) bool {
+    for (events) |event| {
+        if (std.mem.eql(u8, event.kind, kind)) return true;
+    }
+    return false;
 }
