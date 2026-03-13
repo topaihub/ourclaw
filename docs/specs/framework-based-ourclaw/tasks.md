@@ -329,7 +329,7 @@
     - 已新增/更新 adapter 测试，覆盖 CLI / Bridge / HTTP 的 protocol envelope 一致性与 HTTP 特殊错误路径
     - 验证：`zig build test --summary all` 通过（116/116）
 
-- [ ] **M2-03 让 gateway_host 成为真实 listener 宿主**
+- [x] **M2-03 让 gateway_host 成为真实 listener 宿主**
   - 目标：让 `gateway_host` 不只是状态骨架，而是真正持有监听端口、启动/停止/reload 与 listener 状态。
   - 主线落点：
     - `ourclaw/src/runtime/gateway_host.zig`
@@ -344,6 +344,13 @@
   - 参考目的：看 listener 托管、runtime state、reload 与 Zig transport 边界
   - 完成定义：gateway.start/stop/status/reload 反映真实 listener 运行态，而非仅计数变化
   - 验证：`zig build test --summary all`；补 listener lifecycle 与 reload 测试
+  - 本轮实现（2026-03-13）：
+    - `src/runtime/gateway_host.zig` 已补 `listener_ready`、`active_connections`、`reload_count`、`last_reloaded_ms`
+    - `gateway_host` 已新增 `reload()`，并在 listener bind 成功后标记 `listener_ready`
+    - `src/runtime/runtime_host.zig` 已新增 `reloadGateway()`，并把 `gateway_listener_ready` 暴露到 runtime status
+    - 已新增 `src/commands/gateway_reload.zig`，并在 `root.zig` / `http_adapter.zig` 注册 `gateway.reload`
+    - `gateway.status` 与 smoke 测试已补 listener/reload 字段断言
+    - 验证：`zig build test --summary all` 通过（117/117）
 
 - [ ] **M2-04 把 service_manager / daemon 推进到后台运行模型**
   - 目标：让 install/start/stop/restart/status 能表达后台运行态、锁/PID、autostart/restart budget 等更接近真实宿主的语义。

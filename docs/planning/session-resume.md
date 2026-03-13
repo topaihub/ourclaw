@@ -418,6 +418,12 @@
   - Bridge / HTTP / CLI 现已用测试显式校验成功响应结构的一致性
   - 验证：`zig build test --summary all` 通过（116/116）
 
+- **M2-03 已完成（2026-03-13）**：
+  - `gateway_host` 已从单纯状态计数推进到更真实的 listener 宿主：暴露 `listener_ready`、`active_connections`、`reload_count`、`last_reloaded_ms`
+  - 已新增 `gateway.reload` 命令与 `/v1/gateway/reload` 路由
+  - `gateway.status` 与 smoke 测试已覆盖 listener/reload 字段
+  - 验证：`zig build test --summary all` 通过（117/117）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`
