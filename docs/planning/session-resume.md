@@ -435,6 +435,12 @@
   - `parser` 已支持 object/array，`loader` 已支持 snapshot json/file 与 env override，`ourclaw/config/runtime.zig` 已暴露对应入口
   - 验证：`zig build test --summary all` 通过（119/119）
 
+- **M2-06 已完成（2026-03-13）**：
+  - migration/compat import 已增强为 richer metadata 模式：显式 alias 元数据、`unknownPaths`、`aliasRewriteCount`
+  - `compat_import` 已具备 source-aware 归一化入口，可区分 `generic/nullclaw/openclaw`
+  - smoke 与单元测试已覆盖 alias rewrite、unknown paths 和 source normalization
+  - 验证：`zig build test --summary all` 通过（120/120）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`

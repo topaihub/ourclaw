@@ -399,7 +399,7 @@
     - 已新增 parser / loader / runtime 三层测试，覆盖 nested object snapshot、env override、object/array 解析
     - 验证：`zig build test --summary all` 通过（119/119）
 
-- [ ] **M2-06 深化 field registry / migration / compat import**
+- [x] **M2-06 深化 field registry / migration / compat import**
   - 目标：补 `schema versioning`、`migration_aliases`、source-specific importer 与更完整 change log/post-write summary。
   - 主线落点：
     - `ourclaw/src/config/field_registry.zig`
@@ -414,6 +414,12 @@
   - 参考目的：看版本迁移、向后兼容导入与最终写回摘要模型
   - 完成定义：compat import / migration preview / apply / post-write summary 更接近真实产品流程
   - 验证：`zig build test --summary all`；补 migration alias / compat import / regression 测试
+  - 本轮实现（2026-03-13）：
+    - `src/config/migration.zig` 已显式暴露 `MigrationAlias` 与 `aliases()`
+    - `src/compat/config_import.zig` 已按 `generic/nullclaw/openclaw` 做 source-aware 归一化入口，不再完全共享同一输入包装假设
+    - `config.migrate_preview` 已返回 `unknownPaths`，`config.migrate_apply` / `config.compat_import` 已补 `aliasRewriteCount`
+    - 已补 compat import source normalization 测试与 smoke 断言，验证 richer preview/apply 摘要
+    - 验证：`zig build test --summary all` 通过（120/120）
 
 - [ ] **M2-07 打通 execution 级 observability 关联键**
   - 目标：让 `execution_id / session_id / subscription_id` 能贯通日志、事件、metrics 与 replay cursor。
