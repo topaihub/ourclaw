@@ -816,6 +816,8 @@ test "service and gateway control commands mutate runtime state" {
         .task_accepted => {},
     };
     try std.testing.expect(install.ok);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"installCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"daemonProjected\":true") != null);
 
     const start = try dispatcher.dispatch(.{ .request_id = "req_service_start", .method = "service.start", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (start.result.?) {
@@ -823,6 +825,15 @@ test "service and gateway control commands mutate runtime state" {
         .task_accepted => {},
     };
     try std.testing.expect(start.ok);
+
+    const service_status = try dispatcher.dispatch(.{ .request_id = "req_service_status", .method = "service.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (service_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(service_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"daemonProjected\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"installCount\":1") != null);
 
     const gateway_status = try dispatcher.dispatch(.{ .request_id = "req_gateway_status", .method = "gateway.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_status.result.?) {

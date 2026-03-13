@@ -20,22 +20,6 @@ pub const Daemon = struct {
         return .{ .manager = manager };
     }
 
-    pub fn install(self: *Daemon) void {
-        self.manager.install();
-    }
-
-    pub fn start(self: *Daemon) void {
-        self.manager.start();
-    }
-
-    pub fn stop(self: *Daemon) void {
-        self.manager.stop();
-    }
-
-    pub fn restart(self: *Daemon) void {
-        self.manager.restart();
-    }
-
     pub fn status(self: *const Daemon) DaemonStatus {
         const current = self.manager.status();
         return .{
@@ -61,6 +45,7 @@ test "daemon reflects service status" {
     var host = @import("runtime_host.zig").RuntimeHost.init(&gateway_host, &hb, &scheduler);
     var manager = service_manager.ServiceManager.init(&host);
     var daemon = Daemon.init(&manager);
-    daemon.install();
+    manager.install();
     try std.testing.expect(daemon.status().installed);
+    try std.testing.expectEqual(@as(usize, 1), daemon.status().install_count);
 }

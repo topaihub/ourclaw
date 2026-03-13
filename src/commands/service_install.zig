@@ -11,7 +11,6 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
     const mutable: *@import("../runtime/app_context.zig").AppContext = @constCast(app);
     mutable.service_manager.install();
-    mutable.daemon.install();
     const status = mutable.service_manager.status();
-    return std.fmt.allocPrint(ctx.allocator, "{{\"installed\":true,\"enabled\":{s},\"installCount\":{d}}}", .{ if (status.enabled) "true" else "false", status.install_count });
+    return std.fmt.allocPrint(ctx.allocator, "{{\"installed\":true,\"enabled\":{s},\"installCount\":{d},\"daemonProjected\":true}}", .{ if (status.enabled) "true" else "false", status.install_count });
 }
