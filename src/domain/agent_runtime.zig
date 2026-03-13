@@ -27,6 +27,10 @@ pub const AgentRunRequest = struct {
     allow_provider_tools: bool = true,
     max_tool_rounds: usize = 4,
     authority: Authority = .operator,
+    prompt_profile: prompt_assembly.PromptProfile = .default,
+    channel_id: []const u8 = "runtime",
+    identity_label: ?[]const u8 = null,
+    response_mode: prompt_assembly.ResponseMode = .standard,
 };
 
 pub const AgentRunResult = struct {
@@ -187,10 +191,19 @@ pub const AgentRuntime = struct {
                 provider_round_started_payload,
             );
 
+            var prompt_snapshot = try self.session_store.snapshotMeta(self.allocator, request.session_id);
+            defer prompt_snapshot.deinit(self.allocator);
+
             var assembled = try prompt_assembly.build(self.allocator, .{
                 .session_id = request.session_id,
                 .user_prompt = request.prompt,
                 .authority = request.authority,
+                .profile = request.prompt_profile,
+                .channel_id = request.channel_id,
+                .identity_label = request.identity_label,
+                .response_mode = request.response_mode,
+                .session_event_count = prompt_snapshot.event_count,
+                .tool_trace_count = prompt_snapshot.tool_trace_count,
                 .recall_summary = if (recall.entry_count > 0) recall.summary_text else null,
                 .tool_result_json = tool_result_json,
                 .allow_provider_tools = provider_tools_enabled,

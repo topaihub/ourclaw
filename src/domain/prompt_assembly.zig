@@ -8,6 +8,18 @@ pub const ProviderMessage = providers.ProviderMessage;
 pub const ProviderRole = providers.ProviderRole;
 pub const ToolRegistry = tools.ToolRegistry;
 
+pub const PromptProfile = enum {
+    default,
+    concise_operator,
+    support_triage,
+};
+
+pub const ResponseMode = enum {
+    standard,
+    terse,
+    diagnostic,
+};
+
 pub const OwnedProviderMessage = struct {
     role: ProviderRole,
     content: []u8,
@@ -25,6 +37,12 @@ pub const PromptAssemblyInput = struct {
     session_id: []const u8,
     user_prompt: []const u8,
     authority: Authority,
+    profile: PromptProfile = .default,
+    channel_id: []const u8 = "runtime",
+    identity_label: ?[]const u8 = null,
+    response_mode: ResponseMode = .standard,
+    session_event_count: usize = 0,
+    tool_trace_count: usize = 0,
     recall_summary: ?[]const u8 = null,
     tool_result_json: ?[]const u8 = null,
     allow_provider_tools: bool = true,
@@ -92,10 +110,11 @@ pub fn build(allocator: std.mem.Allocator, input: PromptAssemblyInput) anyerror!
 }
 
 fn buildSystemPrompt(allocator: std.mem.Allocator, input: PromptAssemblyInput) anyerror![]u8 {
+    const identity = input.identity_label orelse "anonymous";
     return std.fmt.allocPrint(
         allocator,
-        "System Prompt:\nYou are the OurClaw runtime assistant. Keep responses concise, respect authority level `{s}`, and stay within the active session `{s}`.",
-        .{ @tagName(input.authority), input.session_id },
+        "System Prompt:\nYou are the OurClaw runtime assistant. Profile=`{s}`. ResponseMode=`{s}`. Channel=`{s}`. Identity=`{s}`. Respect authority level `{s}`, stay within the active session `{s}`, and account for sessionEventCount={d}, toolTraceCount={d}.",
+        .{ @tagName(input.profile), @tagName(input.response_mode), input.channel_id, identity, @tagName(input.authority), input.session_id, input.session_event_count, input.tool_trace_count },
     );
 }
 
@@ -114,6 +133,12 @@ test "prompt assembly builds system tools recall and user messages" {
         .session_id = "sess_prompt_01",
         .user_prompt = "PROMPT_ASSEMBLY_PROBE",
         .authority = .operator,
+        .profile = .concise_operator,
+        .channel_id = "cli",
+        .identity_label = "operator:alice",
+        .response_mode = .terse,
+        .session_event_count = 4,
+        .tool_trace_count = 1,
         .recall_summary = "remember previous answer",
         .tool_result_json = "{\"tool\":\"echo\"}",
         .tool_registry = &tool_registry,
@@ -123,6 +148,8 @@ test "prompt assembly builds system tools recall and user messages" {
     try std.testing.expectEqual(@as(usize, 5), result.messages.len);
     try std.testing.expectEqual(ProviderRole.system, result.messages[0].role);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "System Prompt:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Profile=`concise_operator`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Identity=`operator:alice`") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "Available Tools JSON:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "\"riskLevel\":\"high\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[3].content, "PROMPT_ASSEMBLY_PROBE") != null);
