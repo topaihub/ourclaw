@@ -430,6 +430,11 @@
   - 已补 `markStaleProcess()`、restart budget 与后台锁/伪 PID 语义
   - 验证：`zig build test --summary all` 通过（118/118）
 
+- **M2-05 已完成（2026-03-13）**：
+  - `framework` 配置底座已补 file/env/object/array 加载能力，不再只支持标量读取
+  - `parser` 已支持 object/array，`loader` 已支持 snapshot json/file 与 env override，`ourclaw/config/runtime.zig` 已暴露对应入口
+  - 验证：`zig build test --summary all` 通过（119/119）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`

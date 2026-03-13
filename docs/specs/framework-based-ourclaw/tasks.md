@@ -376,7 +376,7 @@
 
 ### 阶段 M2-B：配置治理与 execution 级观测
 
-- [ ] **M2-05 补共享配置加载栈（文件 + env + object/array）**
+- [x] **M2-05 补共享配置加载栈（文件 + env + object/array）**
   - 目标：把配置从“命令可写”推进到“产品可运营”，支持文件加载、环境变量覆盖、复杂对象与数组解析。
   - 主线落点：
     - `framework/src/config/loader.zig`
@@ -392,6 +392,12 @@
   - 参考目的：看 runtime config 的应用、bootstrap defaults、环境覆盖与 onboarding 写回落地方式
   - 完成定义：可从文件/环境稳定构造 runtime snapshot，并支持复杂字段解析
   - 验证：`zig build test --summary all`；补 file/env/object/array 的 happy-path 与 invalid config 测试
+  - 本轮实现（2026-03-13）：
+    - `framework/src/config/parser.zig` 已补 `object/array` 的 JSON 与原始值解析能力
+    - `framework/src/config/loader.zig` 已新增 `loadSnapshotJson`、`loadSnapshotFile`、`loadEnvOverrides` / `loadEnvOverridesFromPairs`
+    - `ourclaw/src/config/runtime.zig` 已暴露 snapshot file/json 与 env override 加载入口
+    - 已新增 parser / loader / runtime 三层测试，覆盖 nested object snapshot、env override、object/array 解析
+    - 验证：`zig build test --summary all` 通过（119/119）
 
 - [ ] **M2-06 深化 field registry / migration / compat import**
   - 目标：补 `schema versioning`、`migration_aliases`、source-specific importer 与更完整 change log/post-write summary。
