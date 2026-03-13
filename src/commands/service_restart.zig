@@ -11,5 +11,5 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const app: *@import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
     const restart = app.service_manager.restart();
     const status = app.service_manager.status();
-    return std.fmt.allocPrint(ctx.allocator, "{{\"restarted\":true,\"runtimeRunning\":{s},\"restartCount\":{d},\"stopCount\":{d},\"stopApplied\":{s},\"startApplied\":{s}}}", .{ if (status.runtime_running) "true" else "false", status.restart_count, status.stop_count, if (restart.stop_changed) "true" else "false", if (restart.start_changed) "true" else "false" });
+    return std.fmt.allocPrint(ctx.allocator, "{{\"restarted\":true,\"runtimeRunning\":{s},\"pid\":{?},\"restartCount\":{d},\"restartBudgetRemaining\":{d},\"stopCount\":{d},\"stopApplied\":{s},\"startApplied\":{s}}}", .{ if (status.runtime_running) "true" else "false", status.pid, status.restart_count, status.restart_budget_remaining, status.stop_count, if (restart.stop_changed) "true" else "false", if (restart.start_changed) "true" else "false" });
 }

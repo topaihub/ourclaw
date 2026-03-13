@@ -25,12 +25,17 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const host_status = runtime_app.runtime_host.status();
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d}}}",
+        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"staleProcessDetected\":{s},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d}}}",
         .{
             service_status.state.asText(),
             if (service_status.installed) "true" else "false",
             if (service_status.enabled) "true" else "false",
+            if (service_status.autostart) "true" else "false",
             daemon_status.state,
+            daemon_status.pid,
+            if (daemon_status.lock_held) "true" else "false",
+            daemon_status.restart_budget_remaining,
+            if (daemon_status.stale_process_detected) "true" else "false",
             if (gateway_status.running) "true" else "false",
             if (host_status.running) "true" else "false",
             if (host_status.loop_active) "true" else "false",

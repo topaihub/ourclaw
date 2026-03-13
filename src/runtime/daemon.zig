@@ -5,6 +5,11 @@ pub const DaemonStatus = struct {
     installed: bool,
     enabled: bool,
     state: []const u8,
+    pid: ?u32,
+    lock_held: bool,
+    autostart: bool,
+    restart_budget_remaining: u8,
+    stale_process_detected: bool,
     install_count: usize,
     start_count: usize,
     stop_count: usize,
@@ -26,6 +31,11 @@ pub const Daemon = struct {
             .installed = current.installed,
             .enabled = current.enabled,
             .state = current.state.asText(),
+            .pid = current.pid,
+            .lock_held = current.lock_held,
+            .autostart = current.autostart,
+            .restart_budget_remaining = current.restart_budget_remaining,
+            .stale_process_detected = current.stale_process_detected,
             .install_count = current.install_count,
             .start_count = current.start_count,
             .stop_count = current.stop_count,
@@ -48,4 +58,5 @@ test "daemon reflects service status" {
     _ = manager.install();
     try std.testing.expect(daemon.status().installed);
     try std.testing.expectEqual(@as(usize, 1), daemon.status().install_count);
+    try std.testing.expect(daemon.status().autostart);
 }
