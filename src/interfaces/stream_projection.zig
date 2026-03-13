@@ -537,60 +537,117 @@ pub fn writeBridgeAgentStream(allocator: std.mem.Allocator, app: *runtime.AppCon
         .cancel_requested = parsed.cancel_requested,
         .client_closed = parsed.client_closed,
     };
+    const has_resume_cursor = parsed.resume_cursor != null;
 
-    // 检查是否有正在运行的执行，避免重复执行
-    const existing_execution = findRunningExecutionForSession(app, parsed.session_id);
+    switch (parsed.resume_cursor orelse ResumeCursor{ .legacy_seq = 0 }) {
+        .legacy_seq => |last_event_id| {
+            const use_legacy_replay = has_resume_cursor and last_event_id > 0;
+            const existing_execution = findRunningExecutionForSession(app, parsed.session_id);
 
-    if (existing_execution) |execution| {
-        // 找到正在运行的执行，返回 meta 告知客户端执行已存在
-        const meta_json = try buildMetaJson(
-            allocator,
-            parsed.request_id,
-            execution.id,
-            parsed.session_id,
-            parsed.provider_id,
-            null,
-            "already_running",
-        );
-        defer allocator.free(meta_json);
-        try writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json);
+            if (existing_execution) |execution| {
+                const meta_json = try buildMetaJson(
+                    allocator,
+                    parsed.request_id,
+                    execution.id,
+                    parsed.session_id,
+                    parsed.provider_id,
+                    if (use_legacy_replay) last_event_id else null,
+                    if (use_legacy_replay) "resume" else "already_running_resume",
+                );
+                defer allocator.free(meta_json);
+                writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                    try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+                    return;
+                };
+                drainExecutionAsBridge(allocator, sink, &state, execution, if (use_legacy_replay) last_event_id else 0) catch |err| {
+                    try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+                };
+                return;
+            }
 
-        // 发送 done 事件表示无法启动新执行
-        const done_json = try buildDoneJson(
-            allocator,
-            false,
-            "ExecutionAlreadyRunning",
-            "execution_already_running_for_session",
-            0,
-            0,
-        );
-        defer allocator.free(done_json);
-        try writeRawJsonLineEvent(allocator, sink, "done", 0, done_json);
-        return;
+            if (use_legacy_replay) {
+                const meta_json = try buildMetaJson(
+                    allocator,
+                    parsed.request_id,
+                    null,
+                    parsed.session_id,
+                    parsed.provider_id,
+                    last_event_id,
+                    "replay_only",
+                );
+                defer allocator.free(meta_json);
+                writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                    try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+                    return;
+                };
+
+                const replay = try replayBridgeSessionEventsAfterSeq(allocator, app, parsed.session_id, last_event_id, sink, &state);
+                const done_json = try buildDoneJson(
+                    allocator,
+                    true,
+                    null,
+                    if (replay.reached_terminal_event) "reconnect_replay_completed" else "reconnect_replay_only",
+                    state.emitted_events,
+                    state.emitted_bytes,
+                );
+                defer allocator.free(done_json);
+                try writeRawJsonLineEvent(allocator, sink, "done", 0, done_json);
+                return;
+            }
+
+            const resolved = try startLiveExecution(app, &parsed);
+            defer releaseExecutionIfNeeded(resolved);
+
+            const meta_json = try buildMetaJson(
+                allocator,
+                parsed.request_id,
+                resolved.execution.id,
+                parsed.session_id,
+                parsed.provider_id,
+                null,
+                "continue",
+            );
+            defer allocator.free(meta_json);
+            writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+                return;
+            };
+
+            drainExecutionAsBridge(allocator, sink, &state, resolved.execution, 0) catch |err| {
+                try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
+            return;
+        },
+        .execution => |cursor| {
+            const execution = app.stream_registry.findExecution(cursor.execution_id) orelse {
+                try writeBridgeProjectionFailure(allocator, sink, parsed.request_id, error.StreamExecutionNotFound);
+                return;
+            };
+            if (!std.mem.eql(u8, execution.session_id, parsed.session_id)) {
+                try writeBridgeProjectionFailure(allocator, sink, parsed.request_id, error.StreamExecutionMismatch);
+                return;
+            }
+
+            const meta_json = try buildMetaJson(
+                allocator,
+                parsed.request_id,
+                execution.id,
+                parsed.session_id,
+                parsed.provider_id,
+                cursor.after_seq,
+                "resume",
+            );
+            defer allocator.free(meta_json);
+            writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+                return;
+            };
+            drainExecutionAsBridge(allocator, sink, &state, execution, cursor.after_seq) catch |err| {
+                try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
+            return;
+        },
     }
-
-    // 没有正在运行的执行，启动新执行
-    const resolved = try startLiveExecution(app, &parsed);
-    defer releaseExecutionIfNeeded(resolved);
-
-    const meta_json = try buildMetaJson(
-        allocator,
-        parsed.request_id,
-        resolved.execution.id,
-        parsed.session_id,
-        parsed.provider_id,
-        null,
-        "continue",
-    );
-    defer allocator.free(meta_json);
-    writeControlledJsonLineEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
-        try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
-        return;
-    };
-
-    drainExecutionAsBridge(allocator, sink, &state, resolved.execution, 0) catch |err| {
-        try finishBridgeTerminalState(allocator, sink, parsed.request_id, &state, err);
-    };
 }
 
 pub fn writeWebSocketAgentStream(allocator: std.mem.Allocator, app: *runtime.AppContext, request: StreamRequest, sink: ByteSink) anyerror!void {
@@ -608,65 +665,138 @@ pub fn writeWebSocketAgentStream(allocator: std.mem.Allocator, app: *runtime.App
         .cancel_requested = parsed.cancel_requested,
         .client_closed = parsed.client_closed,
     };
+    const has_resume_cursor = parsed.resume_cursor != null;
 
-    // 检查是否有正在运行的执行，避免重复执行
-    const existing_execution = findRunningExecutionForSession(app, parsed.session_id);
+    switch (parsed.resume_cursor orelse ResumeCursor{ .legacy_seq = 0 }) {
+        .legacy_seq => |last_event_id| {
+            const use_legacy_replay = has_resume_cursor and last_event_id > 0;
+            const existing_execution = findRunningExecutionForSession(app, parsed.session_id);
 
-    if (existing_execution) |execution| {
-        // 找到正在运行的执行，resume 它
-        const meta_json = try buildMetaJson(
-            allocator,
-            parsed.request_id,
-            execution.id,
-            parsed.session_id,
-            parsed.provider_id,
-            null,
-            "resume",
-        );
-        defer allocator.free(meta_json);
-        writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
-            try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
-            try stream_websocket.writeCloseFrame(sink);
+            if (existing_execution) |execution| {
+                const meta_json = try buildMetaJson(
+                    allocator,
+                    parsed.request_id,
+                    execution.id,
+                    parsed.session_id,
+                    parsed.provider_id,
+                    if (use_legacy_replay) last_event_id else null,
+                    "resume",
+                );
+                defer allocator.free(meta_json);
+                writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                    try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+                    try stream_websocket.writeCloseFrame(sink);
+                    return;
+                };
+                drainExecutionAsWebSocket(allocator, sink, &state, execution, if (use_legacy_replay) last_event_id else 0, .{
+                    .acked_seq = request.websocket_acked_seq,
+                    .pause_requested = request.websocket_pause_requested,
+                    .resume_requested = request.websocket_resume_requested,
+                    .resume_from_seq = request.websocket_resume_from_seq,
+                }) catch |err| {
+                    try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+                };
+                return;
+            }
+
+            if (use_legacy_replay) {
+                const meta_json = try buildMetaJson(
+                    allocator,
+                    parsed.request_id,
+                    null,
+                    parsed.session_id,
+                    parsed.provider_id,
+                    last_event_id,
+                    "replay_only",
+                );
+                defer allocator.free(meta_json);
+                writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                    try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+                    try stream_websocket.writeCloseFrame(sink);
+                    return;
+                };
+
+                const replay = try replayWebSocketSessionEventsAfterSeq(allocator, app, parsed.session_id, last_event_id, sink, &state);
+                const done_json = try buildDoneJson(
+                    allocator,
+                    true,
+                    null,
+                    if (replay.reached_terminal_event) "reconnect_replay_completed" else "reconnect_replay_only",
+                    state.emitted_events,
+                    state.emitted_bytes,
+                );
+                defer allocator.free(done_json);
+                try writeRawWebSocketEvent(allocator, sink, "done", 0, done_json);
+                try stream_websocket.writeCloseFrame(sink);
+                return;
+            }
+
+            const resolved = try startLiveExecution(app, &parsed);
+            defer releaseExecutionIfNeeded(resolved);
+
+            const meta_json = try buildMetaJson(
+                allocator,
+                parsed.request_id,
+                resolved.execution.id,
+                parsed.session_id,
+                parsed.provider_id,
+                null,
+                "continue",
+            );
+            defer allocator.free(meta_json);
+            writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+                try stream_websocket.writeCloseFrame(sink);
+                return;
+            };
+            drainExecutionAsWebSocket(allocator, sink, &state, resolved.execution, 0, .{
+                .acked_seq = request.websocket_acked_seq,
+                .pause_requested = request.websocket_pause_requested,
+                .resume_requested = request.websocket_resume_requested,
+                .resume_from_seq = request.websocket_resume_from_seq,
+            }) catch |err| {
+                try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
             return;
-        };
-        drainExecutionAsWebSocket(allocator, sink, &state, execution, 0, .{
-            .acked_seq = request.websocket_acked_seq,
-            .pause_requested = request.websocket_pause_requested,
-            .resume_requested = request.websocket_resume_requested,
-            .resume_from_seq = request.websocket_resume_from_seq,
-        }) catch |err| {
-            try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
-        };
-        return;
+        },
+        .execution => |cursor| {
+            const execution = app.stream_registry.findExecution(cursor.execution_id) orelse {
+                try writeWebSocketProjectionFailure(allocator, sink, parsed.request_id, error.StreamExecutionNotFound);
+                try stream_websocket.writeCloseFrame(sink);
+                return;
+            };
+            if (!std.mem.eql(u8, execution.session_id, parsed.session_id)) {
+                try writeWebSocketProjectionFailure(allocator, sink, parsed.request_id, error.StreamExecutionMismatch);
+                try stream_websocket.writeCloseFrame(sink);
+                return;
+            }
+
+            const meta_json = try buildMetaJson(
+                allocator,
+                parsed.request_id,
+                execution.id,
+                parsed.session_id,
+                parsed.provider_id,
+                cursor.after_seq,
+                "resume",
+            );
+            defer allocator.free(meta_json);
+            writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
+                try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+                try stream_websocket.writeCloseFrame(sink);
+                return;
+            };
+            drainExecutionAsWebSocket(allocator, sink, &state, execution, cursor.after_seq, .{
+                .acked_seq = request.websocket_acked_seq,
+                .pause_requested = request.websocket_pause_requested,
+                .resume_requested = request.websocket_resume_requested,
+                .resume_from_seq = request.websocket_resume_from_seq,
+            }) catch |err| {
+                try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
+            return;
+        },
     }
-
-    // 没有正在运行的执行，启动新执行
-    const resolved = try startLiveExecution(app, &parsed);
-    defer releaseExecutionIfNeeded(resolved);
-
-    const meta_json = try buildMetaJson(
-        allocator,
-        parsed.request_id,
-        resolved.execution.id,
-        parsed.session_id,
-        parsed.provider_id,
-        null,
-        "continue",
-    );
-    defer allocator.free(meta_json);
-    writeControlledWebSocketEvent(allocator, sink, &state, "meta", 0, meta_json) catch |err| {
-        try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
-        try stream_websocket.writeCloseFrame(sink);
-        return;
-    };
-    drainExecutionAsWebSocket(allocator, sink, &state, resolved.execution, 0, .{
-        .acked_seq = request.websocket_acked_seq,
-        .pause_requested = request.websocket_pause_requested,
-        .resume_requested = request.websocket_resume_requested,
-        .resume_from_seq = request.websocket_resume_from_seq,
-    }) catch |err| {
-        try finishWebSocketTerminalState(allocator, sink, parsed.request_id, &state, err);
-    };
 }
 
 const LiveExecutionHandle = struct {
@@ -1268,6 +1398,62 @@ fn replaySseSessionEventsAfterSeq(
     return outcome;
 }
 
+fn replayBridgeSessionEventsAfterSeq(
+    allocator: std.mem.Allocator,
+    app: *runtime.AppContext,
+    session_id: []const u8,
+    after_seq: u64,
+    sink: ByteSink,
+    state: *ProjectionState,
+) anyerror!ReplayOutcome {
+    const events = try app.framework_context.event_bus.pollAfter(allocator, after_seq);
+    defer {
+        for (events) |*event| event.deinit(allocator);
+        allocator.free(events);
+    }
+
+    var outcome = ReplayOutcome{};
+    for (events) |event| {
+        if (!std.mem.eql(u8, event.topic, "stream.output")) continue;
+        const parsed = parseStreamOutputEnvelope(event.payload_json) catch continue;
+        if (!std.mem.eql(u8, parsed.session_id, session_id)) continue;
+        try writeControlledJsonLineEvent(allocator, sink, state, parsed.kind, event.seq, parsed.payload_json);
+        outcome.replayed_events += 1;
+        if (std.mem.eql(u8, parsed.kind, "final.result")) {
+            outcome.reached_terminal_event = true;
+        }
+    }
+    return outcome;
+}
+
+fn replayWebSocketSessionEventsAfterSeq(
+    allocator: std.mem.Allocator,
+    app: *runtime.AppContext,
+    session_id: []const u8,
+    after_seq: u64,
+    sink: ByteSink,
+    state: *ProjectionState,
+) anyerror!ReplayOutcome {
+    const events = try app.framework_context.event_bus.pollAfter(allocator, after_seq);
+    defer {
+        for (events) |*event| event.deinit(allocator);
+        allocator.free(events);
+    }
+
+    var outcome = ReplayOutcome{};
+    for (events) |event| {
+        if (!std.mem.eql(u8, event.topic, "stream.output")) continue;
+        const parsed = parseStreamOutputEnvelope(event.payload_json) catch continue;
+        if (!std.mem.eql(u8, parsed.session_id, session_id)) continue;
+        try writeControlledWebSocketEvent(allocator, sink, state, parsed.kind, event.seq, parsed.payload_json);
+        outcome.replayed_events += 1;
+        if (std.mem.eql(u8, parsed.kind, "final.result")) {
+            outcome.reached_terminal_event = true;
+        }
+    }
+    return outcome;
+}
+
 fn parseStreamOutputEnvelope(envelope_json: []const u8) anyerror!ParsedStreamOutputEnvelope {
     const session_id = extractJsonStringField(envelope_json, "sessionId") orelse return error.InvalidStreamOutputEnvelope;
     const kind = extractJsonStringField(envelope_json, "kind") orelse return error.InvalidStreamOutputEnvelope;
@@ -1860,6 +2046,169 @@ test "stream projection returns replay only sse stream for last event id" {
     try std.testing.expect(std.mem.indexOf(u8, output, "event: final.result") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"reconnect_replay_completed\"") != null);
     try std.testing.expectEqual(latest_before, app.framework_context.event_bus.latestSeq());
+}
+
+test "stream projection returns replay only bridge stream for last event id" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_stream_bridge_replay",
+        .label = "Mock OpenAI Stream Bridge Replay",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    var seeded = try app.agent_runtime.runStream(.{
+        .session_id = "sess_stream_bridge_replay",
+        .prompt = "CALL_TOOL:echo",
+        .provider_id = "mock_openai_stream_bridge_replay",
+        .authority = .admin,
+    });
+    defer seeded.deinit(std.testing.allocator);
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_stream_bridge_replay" } },
+        .{ .key = "prompt", .value = .{ .string = "ignored on replay" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_stream_bridge_replay" } },
+        .{ .key = "last_event_id", .value = .{ .integer = 1 } },
+    };
+
+    var sink = sink_model.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+    const parsed_bridge_replay = try parseResumeCursor(std.testing.allocator, params[0..]);
+    try std.testing.expect(parsed_bridge_replay != null);
+    switch (parsed_bridge_replay.?) {
+        .legacy_seq => |value| try std.testing.expectEqual(@as(u64, 1), value),
+        .execution => return error.TestUnexpectedResult,
+    }
+    try writeBridgeAgentStream(std.testing.allocator, app, .{
+        .request_id = "stream_req_bridge_replay_01",
+        .params = params[0..],
+        .authority = .admin,
+    }, sink.asByteSink());
+
+    const output = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"resumeMode\":\"replay_only\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"event\":\"final.result\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"reconnect_replay_completed\"") != null);
+}
+
+test "stream projection bridge resumes by execution cursor" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_stream_bridge_resume",
+        .label = "Mock OpenAI Stream Bridge Resume",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    const execution = try app.stream_registry.startExecution(.{
+        .request_id = "stream_req_bridge_resume_seed",
+        .session_id = "sess_stream_bridge_resume",
+        .prompt = "CALL_TOOL:echo",
+        .provider_id = "mock_openai_stream_bridge_resume",
+        .authority = .admin,
+    });
+
+    while (!execution.terminalSnapshot().completed) {
+        std.Thread.sleep(2 * std.time.ns_per_ms);
+    }
+
+    const resume_value = try std.fmt.allocPrint(std.testing.allocator, "{s}:{d}", .{ execution.id, 1 });
+    defer std.testing.allocator.free(resume_value);
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_stream_bridge_resume" } },
+        .{ .key = "prompt", .value = .{ .string = "ignored on resume" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_stream_bridge_resume" } },
+        .{ .key = "last_event_id", .value = .{ .string = resume_value } },
+    };
+
+    var sink = sink_model.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+    const parsed_bridge_resume = try parseResumeCursor(std.testing.allocator, params[0..]);
+    try std.testing.expect(parsed_bridge_resume != null);
+    switch (parsed_bridge_resume.?) {
+        .legacy_seq => return error.TestUnexpectedResult,
+        .execution => |cursor| {
+            defer std.testing.allocator.free(cursor.execution_id);
+            try std.testing.expectEqualStrings(execution.id, cursor.execution_id);
+            try std.testing.expectEqual(@as(u64, 1), cursor.after_seq);
+        },
+    }
+    try writeBridgeAgentStream(std.testing.allocator, app, .{
+        .request_id = "stream_req_bridge_resume_01",
+        .params = params[0..],
+        .authority = .admin,
+    }, sink.asByteSink());
+
+    const output = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"resumeMode\":\"resume\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, execution.id) != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"event\":\"done\"") != null);
+}
+
+test "stream projection websocket returns replay only stream for last event id" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_stream_ws_replay",
+        .label = "Mock OpenAI Stream WS Replay",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    var seeded = try app.agent_runtime.runStream(.{
+        .session_id = "sess_stream_ws_replay",
+        .prompt = "CALL_TOOL:echo",
+        .provider_id = "mock_openai_stream_ws_replay",
+        .authority = .admin,
+    });
+    defer seeded.deinit(std.testing.allocator);
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_stream_ws_replay" } },
+        .{ .key = "prompt", .value = .{ .string = "ignored on replay" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_stream_ws_replay" } },
+        .{ .key = "last_event_id", .value = .{ .integer = 1 } },
+    };
+
+    var sink = sink_model.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+    const parsed_ws_replay = try parseResumeCursor(std.testing.allocator, params[0..]);
+    try std.testing.expect(parsed_ws_replay != null);
+    switch (parsed_ws_replay.?) {
+        .legacy_seq => |value| try std.testing.expectEqual(@as(u64, 1), value),
+        .execution => return error.TestUnexpectedResult,
+    }
+    try writeWebSocketAgentStream(std.testing.allocator, app, .{
+        .request_id = "stream_req_ws_replay_01",
+        .params = params[0..],
+        .authority = .admin,
+    }, sink.asByteSink());
+
+    const bytes = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"resumeMode\":\"replay_only\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"event\":\"done\"") != null);
 }
 
 test "stream projection honours external cancel signal" {
