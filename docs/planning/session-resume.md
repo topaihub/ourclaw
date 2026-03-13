@@ -377,6 +377,34 @@
 21. ✅ **TASK-021 已完成**：manager 最小 view models 已落地
 22. ✅ **TASK-022 已完成**：host / bridge / services 最小闭环已落地
 
+## 新的下一阶段里程碑（M2）
+
+- **里程碑名称**：M2「产品化 runtime 与真实集成第一阶段」
+- **目标**：不再重做基础骨架，而是优先补齐：
+  1. 流式恢复与 execution reconnect
+  2. gateway / runtime / service / daemon 的真实长期运行语义
+  3. 文件 + env + migration + compat import 的配置治理深化
+  4. execution 级 observability 关联键
+  5. prompt profile / identity-driven prompt assembly
+  6. retrieval / embeddings / memory ranking
+  7. 现有 provider/tool 的生产语义第一阶段
+
+- **为什么先做这轮**：
+  - 当前 `ourclaw` 已经不是 demo 骨架，而是有完整第一版主链路
+  - 离 `openclaw` 的主要差距，已经不在“有没有模块”，而在“能不能长期跑、能不能恢复、能不能治理、能不能运维”
+  - 因此下一轮最值钱的是产品化收口，而不是继续无边界扩更多 stub 域
+
+- **本轮明确暂不做**：
+  - 完整 GUI / product workflow
+  - voice
+  - 大量新 channel 扩展
+  - skills / cron / mcp / tunnel / hardware 的大面积新域集成
+  - 一口气追求 openclaw 全量功能平移
+
+- **新任务入口**：
+  - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md` 中新增的 `M2-01` ~ `M2-10`
+  - 后续执行时，应继续按“主线落点 + 参考文件 + 验证方式”推进，而不是回到旧 gap 文档重新猜测
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`
