@@ -651,6 +651,8 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
         .task_accepted => {},
     };
     try std.testing.expect(cron.ok);
+    try std.testing.expect(std.mem.indexOf(u8, cron.result.?.success_json, "\"tickCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cron.result.?.success_json, "\"heartbeatBeatCount\":1") != null);
 
     const cron_list = try dispatcher.dispatch(.{ .request_id = "req_cron_list_rich", .method = "cron.list", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer if (cron_list.result) |result| switch (result) {
@@ -659,6 +661,7 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(cron_list.ok);
     try std.testing.expect(std.mem.indexOf(u8, cron_list.result.?.success_json, "\"runCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cron_list.result.?.success_json, "\"schedulerTickCount\":1") != null);
 
     const tunnel_activate_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "cloudflare" } },
@@ -915,6 +918,16 @@ test "skills cron tunnel mcp hardware commands are operational" {
     };
     try std.testing.expect(cron_tick.ok);
     try std.testing.expect(std.mem.indexOf(u8, cron_tick.result.?.success_json, "\"jobs\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cron_tick.result.?.success_json, "\"heartbeatBeatCount\":1") != null);
+
+    const heartbeat_status = try dispatcher.dispatch(.{ .request_id = "req_heartbeat_status", .method = "heartbeat.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (heartbeat_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(heartbeat_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, heartbeat_status.result.?.success_json, "\"ageMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, heartbeat_status.result.?.success_json, "\"staleAfterMs\":") != null);
 
     const tunnel_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "cloudflare" } },
