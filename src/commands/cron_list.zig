@@ -22,7 +22,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try writer.writeByte('[');
     for (app.cron_scheduler.jobs.items, 0..) |job, index| {
         if (index > 0) try writer.writeByte(',');
-        try writer.print("{{\"id\":\"{s}\",\"schedule\":\"{s}\",\"command\":\"{s}\",\"runCount\":{d},\"lastRunMs\":", .{ job.id, job.schedule, job.command, job.run_count });
+        try writer.print("{{\"id\":\"{s}\",\"schedule\":\"{s}\",\"command\":\"{s}\",\"runCount\":{d},\"schedulerTickCount\":{d},\"executedJobCount\":{d},\"lastRunMs\":", .{ job.id, job.schedule, job.command, job.run_count, app.cron_scheduler.tick_count, app.cron_scheduler.executed_job_count });
         if (job.last_run_ms) |value| {
             try writer.print("{d}", .{value});
         } else {
