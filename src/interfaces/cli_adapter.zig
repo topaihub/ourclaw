@@ -563,7 +563,7 @@ pub fn dispatchAndRenderJson(allocator: std.mem.Allocator, app: *runtime.AppCont
 
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(owned.request, false);
-    return renderEnvelopeJson(allocator, envelope);
+    return renderProtocolEnvelopeJson(allocator, envelope);
 }
 
 pub fn shouldStreamLive(args: []const []const u8) bool {
@@ -780,6 +780,9 @@ test "cli adapter dispatches app meta" {
 
     const json = try dispatchAndRenderJson(std.testing.allocator, app, &.{"app.meta"});
     defer std.testing.allocator.free(json);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"result\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"meta\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"appName\":\"ourclaw\"") != null);
 }
 

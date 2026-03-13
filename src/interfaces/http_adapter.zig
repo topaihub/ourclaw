@@ -200,16 +200,10 @@ pub fn handle(allocator: std.mem.Allocator, app: *runtime.AppContext, request: H
     }
 
     if (std.mem.eql(u8, request.route, "/v1/agent/stream/ws")) {
-        return .{
-            .status_code = 426,
-            .body_json = try allocator.dupe(u8, "{\"ok\":false,\"error\":{\"code\":\"HTTP_UPGRADE_REQUIRED\",\"message\":\"websocket upgrade required\"}}"),
-        };
+        return makeProtocolErrorResponse(allocator, request.request_id, 426, "HTTP_UPGRADE_REQUIRED", "websocket upgrade required");
     }
 
-    const method = routeToMethod(request.route) orelse return .{
-        .status_code = 404,
-        .body_json = try allocator.dupe(u8, "{\"ok\":false,\"error\":{\"code\":\"CORE_METHOD_NOT_FOUND\"}}"),
-    };
+    const method = routeToMethod(request.route) orelse return makeProtocolErrorResponse(allocator, request.request_id, 404, "CORE_METHOD_NOT_FOUND", "route not found");
 
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(.{
@@ -239,10 +233,11 @@ pub fn handleGatewayAgentStreamSse(allocator: std.mem.Allocator, app: *runtime.A
 pub fn handleGatewayAgentStreamWebSocket(allocator: std.mem.Allocator, app: *runtime.AppContext, request: HttpRequest) anyerror!gateway_host.GatewayResponse {
     try app.channel_registry.recordHttpStream(request.route, extractStringParam(request.params, "session_id"));
     if (request.websocket_key == null) {
+        const response = try makeProtocolErrorResponse(allocator, request.request_id, 426, "HTTP_UPGRADE_REQUIRED", "websocket upgrade required");
         return .{
-            .status_code = 426,
-            .content_type = "application/json",
-            .body = .{ .buffered = try allocator.dupe(u8, "{\"ok\":false,\"error\":{\"code\":\"HTTP_UPGRADE_REQUIRED\",\"message\":\"websocket upgrade required\"}}") },
+            .status_code = response.status_code,
+            .content_type = response.content_type,
+            .body = .{ .buffered = response.body_json },
         };
     }
 
@@ -304,6 +299,23 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/hardware/register")) return "hardware.register";
     if (std.mem.eql(u8, route, "/v1/peripheral/register")) return "peripheral.register";
     return null;
+}
+
+fn makeProtocolErrorResponse(
+    allocator: std.mem.Allocator,
+    request_id: []const u8,
+    status_code: u16,
+    code: []const u8,
+    message: []const u8,
+) anyerror!HttpResponse {
+    return .{
+        .status_code = status_code,
+        .body_json = try std.fmt.allocPrint(
+            allocator,
+            "{{\"ok\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}},\"meta\":{{\"requestId\":\"{s}\",\"traceId\":null,\"taskId\":null}}}}",
+            .{ code, message, request_id },
+        ),
+    };
 }
 
 fn extractStringParam(params: []const framework.ValidationField, key: []const u8) ?[]const u8 {
@@ -469,7 +481,36 @@ test "http adapter maps route to app meta" {
     defer response.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u16, 200), response.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"result\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"meta\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"appName\":\"ourclaw\"") != null);
+}
+
+test "http adapter returns protocol envelope for missing route and websocket upgrade" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var not_found = try handle(std.testing.allocator, app, .{
+        .request_id = "http_req_missing_route",
+        .route = "/v1/unknown",
+        .params = &.{},
+    });
+    defer not_found.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u16, 404), not_found.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, not_found.body_json, "\"ok\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, not_found.body_json, "\"code\":\"CORE_METHOD_NOT_FOUND\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, not_found.body_json, "\"requestId\":\"http_req_missing_route\"") != null);
+
+    var upgrade = try handle(std.testing.allocator, app, .{
+        .request_id = "http_req_upgrade_needed",
+        .route = "/v1/agent/stream/ws",
+        .params = &.{},
+    });
+    defer upgrade.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u16, 426), upgrade.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, upgrade.body_json, "\"code\":\"HTTP_UPGRADE_REQUIRED\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, upgrade.body_json, "\"requestId\":\"http_req_upgrade_needed\"") != null);
 }
 
 test "http adapter projects agent stream as sse" {

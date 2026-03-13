@@ -67,6 +67,9 @@ test "bridge adapter dispatches config get" {
         .params = params[0..],
     });
     defer std.testing.allocator.free(json);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"result\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"meta\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\":\"gateway.port\"") != null);
 }
 
