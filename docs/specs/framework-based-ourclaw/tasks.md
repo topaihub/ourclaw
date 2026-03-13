@@ -307,7 +307,7 @@
     - 已新增 stream projection 级测试，覆盖 bridge replay-only、bridge execution resume、ws replay-only
     - 验证：`zig build test --summary all` 通过（115/115）
 
-- [ ] **M2-02 统一 CLI / Bridge / HTTP 的 auth / route / error 映射表**
+- [x] **M2-02 统一 CLI / Bridge / HTTP 的 auth / route / error 映射表**
   - 目标：保证同一命令跨入口的 authority、accepted/error/success 语义一致，减少入口层协议漂移。
   - 主线落点：
     - `ourclaw/src/interfaces/cli_adapter.zig`
@@ -322,6 +322,12 @@
   - 参考目的：看统一网关入口如何把权限、错误、accepted/result 做成稳定契约
   - 完成定义：跨入口的 accepted / success / app_error / HTTP status / bridge envelope 规则一致
   - 验证：`zig build test --summary all`；补每种入口一条 happy-path 和一条 failure-path 对照测试
+  - 本轮实现（2026-03-13）：
+    - `src/interfaces/cli_adapter.zig` 的非流式输出已改为统一 protocol envelope（`ok/result/error/meta`），不再走更旧的裸 JSON 成功体
+    - `src/interfaces/bridge_adapter.zig` 已补 bridge 成功路径对 `ok/result/meta` 结构的断言，确认和 CLI / HTTP 对齐
+    - `src/interfaces/http_adapter.zig` 已把 `/v1/agent/stream/ws` 的 upgrade required 与未知 route 的 404 错误改成统一 protocol error envelope，并带 `meta.requestId`
+    - 已新增/更新 adapter 测试，覆盖 CLI / Bridge / HTTP 的 protocol envelope 一致性与 HTTP 特殊错误路径
+    - 验证：`zig build test --summary all` 通过（116/116）
 
 - [ ] **M2-03 让 gateway_host 成为真实 listener 宿主**
   - 目标：让 `gateway_host` 不只是状态骨架，而是真正持有监听端口、启动/停止/reload 与 listener 状态。

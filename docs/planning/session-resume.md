@@ -412,6 +412,12 @@
   - 已新增 bridge replay-only、bridge execution resume、ws replay-only 三条 stream projection 测试
   - 验证：`zig build test --summary all` 通过（115/115）
 
+- **M2-02 已完成（2026-03-13）**：
+  - CLI 非流式输出已统一为 protocol envelope（`ok/result/error/meta`）
+  - HTTP 特殊错误路径（未知 route、WS upgrade required）已统一为 protocol error envelope，并带 `meta.requestId`
+  - Bridge / HTTP / CLI 现已用测试显式校验成功响应结构的一致性
+  - 验证：`zig build test --summary all` 通过（116/116）
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`
