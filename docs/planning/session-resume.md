@@ -32,6 +32,39 @@
 
 ## 最近结论
 
+- **B3 第二子步已完成（2026-03-16）**：
+  - `agent.run` / `agent.stream` 已显式接收 `max_tool_rounds`
+  - `session.turn.completed` 已写出 `maxToolRounds`
+  - `session.get` 的 `latestTurn` / `recentTurns` 已对外暴露 `maxToolRounds`
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（175/175）
+
+- **B2 最后一小刀已完成（2026-03-16）**：
+  - `memory.snapshot_import` 对显式 `embeddingProvider:null` / `embeddingModel:null` 已改为真正清空，不再被默认 embedding 配置污染
+  - `memory_runtime.zig` domain test 与 `tests/smoke.zig` 已补手写 snapshot richer metadata 回归
+
+- **B2 已完成（2026-03-16）**：
+  - `memory_runtime.exportSnapshotJson()` / `importSnapshotJson()` 已稳定保留 `tsUnixMs / embeddingProvider / embeddingModel`
+  - `memory_runtime.zig` 已有 richer metadata roundtrip domain test，`tests/smoke.zig` 也已覆盖 export/import roundtrip 与 retrieval metadata 输出
+  - 结论：B2 当前无需继续补 richer metadata 保真代码，可转入后续 wave
+
+- **B1 已完成（2026-03-16）**：
+  - `session_state.snapshotMeta()` 已提供 ledger header、最新 turn 元数据、累计 `prompt/completion/total tokens`
+  - `session_state.recentTurns()` 已补最近 completed turns 的结构化提取
+  - `session.get` 已补 `usage`、`recentTurns` 与 `recovery.executionCursor`，不再只暴露 `latestTurn`
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（174/174）
+
+- **B1 第三子步已完成（2026-03-16）**：
+  - `session.turn.completed` 中已有的 `promptTokens / completionTokens / totalTokens` 现已在 `session_state.snapshotMeta()` 中做累计聚合
+  - `session.get` 已新增 `usage` 结构化块，开始稳定输出 session 级累计 token 视图，而不再只暴露最近一次 turn 的 token 值
+  - `session_state.zig` 已补累计 usage domain test，`tests/smoke.zig` 已补双次 `agent.run` 后的累计 usage 回归
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（173/173）
+
+- **B3 第一子步已完成（2026-03-16）**：
+  - `session.compact` 产出的 compacted summary 不再只是落在 `session.summary` / `session.get` 中，而是已真正接入 `agent_runtime -> prompt_assembly` 主链路
+  - `memory_runtime.recallForTurn()` 现会把 `compacted_summary_text` 与 recent raw recall 分离；prompt 注入顺序变为 `Compacted Session Summary` 在前、`Recent Memory Recall` 在后
+  - `prompt_assembly.zig`、`agent_runtime.zig`、`providers/openai_compatible.zig` 与 `tests/smoke.zig` 已补 summary-first 回归
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（172/172）
+
 - **TASK-001 收口完成**：
   - 明确了 replay-only、resume、continue 三种模式的语义边界
   - replay-only：仅回放历史事件，不启动新执行

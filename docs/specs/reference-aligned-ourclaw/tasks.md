@@ -36,7 +36,7 @@
 
 ### Wave B — session / memory / agent runtime 深化
 
-- [ ] **B1. 完成 session ledger / replay / usage 结构化模型**
+- [x] **B1. 完成 session ledger / replay / usage 结构化模型**
   - 主线落点：`ourclaw/src/domain/session_state.zig`、`src/commands/session_get.zig`
   - 参考：`nullclaw` session manager、`openclaw` session/control semantics
   - 验证：domain tests + smoke
@@ -44,9 +44,11 @@
   - 当前进展（2026-03-16）：
     - 已完成第一子步：`session_state.zig` 现已补 `seq / stream_seq / execution_id / ts_unix_ms` 的 ledger header；`session.get` 已新增 `counts / replay / latestTurn` 结构化块
     - 已完成第二子步：provider `promptTokens / completionTokens / totalTokens` 已接入 `session.turn.completed` 与 `session.get`
-    - 当前下一步：继续做更完整的 session ledger / usage / replay 结构化模型（如累计 usage、recent turns、恢复游标）
+    - 已完成第三子步：`session_state.snapshotMeta()` 已开始聚合累计 `prompt/completion/total tokens`；`session.get` 已新增 `usage` 结构化块；`session_state.zig` 与 `tests/smoke.zig` 已补累计 usage 回归；`ourclaw` `zig build test --summary all -j1` 通过（173/173）
+    - 已完成第四子步：`session_state.recentTurns()` 已补最近 turn 结构化提取；`session.get` 已新增 `recentTurns` 与 `recovery.executionCursor`；`ourclaw` `zig build test --summary all -j1` 通过（174/174）
+    - 完成判断：当前 session snapshot 已具备 ledger header、累计 usage、recent turns、replay 范围与恢复 cursor，足以支撑 manager / resume 场景
 
-- [ ] **B2. 深化 memory 生命周期能力**
+- [x] **B2. 深化 memory 生命周期能力**
   - 主线落点：`ourclaw/src/domain/memory_runtime.zig`、`src/commands/memory_*`
   - 参考：`nullclaw/src/memory/*`
   - 验证：domain tests + migration roundtrip + smoke
@@ -54,14 +56,20 @@
   - 当前进展（2026-03-16）：
     - 已完成第一子步：`compactSession` 已升级为 `CompactionResult`；`memory.snapshot_export` / `memory.migrate_apply` 已输出更清晰 lifecycle 结果；新增 `memory.snapshot_import`
     - 已完成第二子步：`memory.snapshot_export` / `memory.migrate_apply` 已补 `snapshotJson` import-ready 字段；`memory_runtime.zig` 已改为结构化 snapshot import，支持 nested `tool_result` 与 compact 后 `session_summary` 的 canonical roundtrip；`memory.summary` / `session.compact` 已修复 `summaryText` JSON 转义
-    - 已完成验证：`memory_runtime.zig` 与 `tests/smoke.zig` 已覆盖 export -> compact -> import -> summary/retrieve 回归；`ourclaw` `zig build test --summary all` 通过（169/169）
-    - 当前下一步：继续评估 canonical snapshot schema 是否需要稳定保留 `tsUnixMs / embeddingProvider / embeddingModel` 等 richer metadata
+    - 已完成第三子步：canonical snapshot schema 已稳定保留 `tsUnixMs / embeddingProvider / embeddingModel` 等 richer metadata；`memory_runtime.zig` domain tests 与 `tests/smoke.zig` roundtrip 已覆盖 richer metadata 保真
+    - 完成判断：summary / compact / migrate / snapshot export/import / retrieval richer metadata 已形成稳定闭环
 
 - [ ] **B3. 深化 agent runtime 策略面**
   - 主线落点：`ourclaw/src/domain/agent_runtime.zig`、`prompt_assembly.zig`
   - 参考：`nullclaw` agent runtime、`openclaw` 路由与控制语义
   - 验证：agent domain tests + smoke
   - 完成定义：provider/tool/memory/session 策略与压缩/路由边界清晰可测
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：`session.compact` 产生的 compacted summary 现已通过 `session.summary` / `snapshot.latest_summary_text` 优先注入 `prompt_assembly`，不再与 raw memory recall 混为一块
+    - `memory_runtime.recallForTurn()` 现已拆分 `compacted_summary_text` 与 `Recent Memory Recall`，避免 compacted summary 在 prompt 中重复展开
+    - `prompt_assembly.zig`、`agent_runtime.zig` 与 `tests/smoke.zig` 已补 summary-first 回归；`ourclaw` `zig build test --summary all -j1` 通过（172/172）
+    - 已完成第二子步：`max_tool_rounds` 已从 `agent.run` / `agent.stream` command surface 透传到 runtime，并写入 `session.turn.completed.maxToolRounds`；`session.get` 的 `latestTurn` / `recentTurns` 已对外暴露该字段；`ourclaw` `zig build test --summary all -j1` 通过（175/175）
+    - 当前下一步：继续细化 B3 后续策略，优先补 `allow_provider_tools / prompt_profile / response_mode` 的 command/session surface
 
 ### Wave C — gateway / control-plane 对齐 openclaw
 
