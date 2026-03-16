@@ -32,6 +32,12 @@
 
 ## 最近结论
 
+- **C3 已完成（2026-03-16）**：
+  - `config.migrate_apply` / `config.compat_import` apply 返回面已具备更完整治理摘要
+  - `config_runtime_hooks` 已真正消费 `gateway.require_pairing` / `runtime.max_tool_rounds`
+  - `app.meta` 与 `agent.run/stream` 默认行为已开始反映 config runtime effective 值
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（181/181）
+
 - **C2 已完成（2026-03-16）**：
   - `service.*` 命令已统一到同一份恢复/健康 snapshot contract
   - `restart_budget_remaining` 已升级为真实阻断策略，`budgetExhausted` 可见

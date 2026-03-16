@@ -98,11 +98,16 @@
     - 已完成第四子步：stale 进程已形成显式恢复策略投影，`recoveryEligible / recoveryAction` 进入 runtime 与 service contract
     - 完成判断：service/daemon 当前已具备恢复、预算、健康三类策略面，并通过 runtime tests + smoke 验证
 
-- [ ] **C3. 完成 config schema / migration / import 产品化治理**
+- [x] **C3. 完成 config schema / migration / import 产品化治理**
   - 主线落点：`ourclaw/src/config/*`、`src/runtime/config_runtime_hooks.zig`
   - 参考：openclaw config schema / reload / onboarding
   - 验证：config tests + smoke
   - 完成定义：配置治理成为 control-plane 核心，而不是附属功能
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：`config.migrate_apply` / `config.compat_import` 的 apply 返回面已补齐 `from/to version`、`unknownCount`、`requiresRestart` 等治理摘要
+    - 已完成第二子步：`config_runtime_hooks` 已把 `gateway.require_pairing` 与 `runtime.max_tool_rounds` 从 schema 侧 `notify_runtime` 真正对齐到运行态
+    - 已完成第三子步：`app.meta` 与 `agent.run` / `agent.stream` 默认值现已消费 runtime config effective 值；smoke 已覆盖配置变更对运行态与 agent 默认行为的影响
+    - 完成判断：schema、migration、compat import、runtime notify 与 apply governance 当前已形成闭环，C3 可视为收口
 
 ### Wave D — 流协议与入口适配统一
 
