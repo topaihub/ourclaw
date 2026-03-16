@@ -2,9 +2,9 @@
 
 > 使用说明（2026-03-13）：本文档主要用于保留 `nullclaw` 对照分析、能力矩阵与历史 gap 判断。当前继续推进主线开发时，请优先参考新 spec：
 >
-> - `ourclaw/docs/specs/framework-based-ourclaw/requirements.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/design.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 >
 > 尤其是涉及“当前状态”与“任务状态”时，应以新 spec 和最新代码为准，本文更适合作为参考背景而非唯一执行入口。
 

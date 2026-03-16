@@ -6,8 +6,9 @@
 
 1. `README.md`
 2. `WORKSPACE_CONTEXT.md`
-3. `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
-4. `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+3. `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+4. `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+5. `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 5. `docs/planning/current-task-board.md`
 6. `ourclaw/docs/planning/session-resume.md`
 7. `ourclaw/docs/README.md`
@@ -29,19 +30,16 @@
 
 ## 3. 当前任务主线
 
-现在继续开发时，以 `ourclaw/docs/specs/framework-based-ourclaw/tasks.md` 为主入口。
-
-如果 `tasks.md` 显示主线已完成，则继续转到 `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`，不要再从旧 `full-business-gap-tasks.md` 恢复任务。
+现在继续开发时，以 `ourclaw/docs/specs/reference-aligned-ourclaw/` 为主入口，不要再从旧 phase-1 baseline 或 `full-business-gap-tasks.md` 恢复任务。
 
 ## 4. 当前建议下一步
 
-按 `docs/planning/current-task-board.md` 的“下一步”与 `next-stage-backlog.md` 的优先级继续。
+按 `docs/planning/current-task-board.md` 与 `reference-aligned-ourclaw/tasks.md` 的优先级继续。
 
 如果没有新指令，默认原则：
 
-1. 先看 `next-stage-backlog.md` 中当前仍为 `active` 的项
-2. 若 `B6` 未完成，优先继续清理文档入口与历史映射
-3. `B6` 完成后，再进入 `B4`
+1. 先看 `reference-aligned-ourclaw/tasks.md` 当前最靠前的未完成 wave
+2. 再按 `current-task-board.md` 的 live 状态恢复执行
 
 ## 5. 工作约定
 
@@ -51,8 +49,7 @@
 - 完成一轮后，优先更新：
   - `docs/planning/current-task-board.md`
   - `ourclaw/docs/planning/session-resume.md`
-  - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
-  - `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+  - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 
 ## 6. 最短启动提示词
 
@@ -61,10 +58,11 @@
 先读：
 `README.md`
 `WORKSPACE_CONTEXT.md`
-`ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
-`ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+`ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+`ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+`ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 `docs/planning/current-task-board.md`
 `ourclaw/docs/planning/session-resume.md`
 `ourclaw/docs/README.md`
 
-然后先按 `docs/planning/current-task-board.md` 的“当前清单 / 下一步”恢复执行，再按 `next-stage-backlog.md` 中的 `active / todo` 顺序继续开发，不要把归档任务重新当成活跃项，并把新的阶段结论及时写回 docs。
+然后先按 `docs/planning/current-task-board.md` 的“当前清单 / 下一步”恢复执行，再按 `reference-aligned-ourclaw/tasks.md` 的 wave 顺序继续开发，并把新的阶段结论及时写回 docs。

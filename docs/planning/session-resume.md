@@ -2,20 +2,23 @@
 
 > 使用说明（2026-03-13）：本文件继续保留为“阶段进度 / 续接记录”入口，但如果目标是继续推进当前主线开发，请优先参考：
 >
-> - `ourclaw/docs/specs/framework-based-ourclaw/requirements.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/design.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 >
 > 本文档更适合回答“之前做到哪了”，不再作为唯一的开发任务入口。
 >
-> 说明（2026-03-16）：原主线 `tasks.md` 明细已归档到：
+> 说明（2026-03-16）：phase-1 baseline 已迁移到 backup：
 >
+> - `ourclaw/docs/backup/framework-based-ourclaw/requirements.md`
+> - `ourclaw/docs/backup/framework-based-ourclaw/design.md`
+> - `ourclaw/docs/backup/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/backup/framework-based-ourclaw/next-stage-backlog.md`
 > - `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`
 
 本文档用于在会话中断时快速恢复上下文。
 
-如果你现在是要给新会话快速续接，请优先看：`ourclaw/docs/specs/framework-based-ourclaw/tasks.md`、`ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`、`docs/planning/current-task-board.md`
+如果你现在是要给新会话快速续接，请优先看：`ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`、`ourclaw/docs/specs/reference-aligned-ourclaw/design.md`、`ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`、`docs/planning/current-task-board.md`
 
 后续如果有新的设计判断、任务拆分、阶段结论或阻塞分析，应优先更新本文档或同目录对应专题文档，而不是只留在对话上下文里。
 
@@ -481,8 +484,8 @@
 
 - **任务入口已切换（2026-03-16）**：
   - 原主线 `tasks.md` 的长篇已完成任务明细已归档到 `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`
-  - 当前 `ourclaw/docs/specs/framework-based-ourclaw/tasks.md` 只保留“主线已完成 + 入口跳转”语义
-  - 后续继续推进 `ourclaw` 时，应优先查看 `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+  - phase-1 baseline spec 正文已迁移到 `ourclaw/docs/backup/framework-based-ourclaw/`
+  - 后续继续推进 `ourclaw` 时，应优先查看 `ourclaw/docs/specs/reference-aligned-ourclaw/`
 
 - **B1 已完成（2026-03-16）**：
   - `runtime/stream_registry.zig` 已把 `StreamExecution.cancel_requested` 真正传入 `agent_runtime.runStream()`，execution cancel 不再只停在 projector 层
@@ -520,7 +523,7 @@
 
 - **B6 已完成（2026-03-16）**：
   - 已开始清理主入口与历史文档漂移：`current-task-board.md` 现在真实反映当前 backlog，而不再停留在 `B1/B2` 语境
-  - `ourclaw/docs/README.md`、`ourclaw/docs/planning/full-business-gap-tasks.md` 已明确历史参考定位
+  - `ourclaw/docs/README.md`、`ourclaw/docs/backup/planning/full-business-gap-tasks.md` 已明确历史参考定位
   - `workspace-mainline-roadmap.md`、`task-001-execution-prompt.md` 已从旧任务源切到当前 spec / backlog 入口
   - `README.md`、`WORKSPACE_CONTEXT.md`、`AGENTS.md`、`restart-handoff.md` 现已统一默认入口顺序到 `tasks.md -> next-stage-backlog.md -> current-task-board.md`
   - `next-session-handoff-2026-03-13.md` 已降级为 dated handoff 历史快照
