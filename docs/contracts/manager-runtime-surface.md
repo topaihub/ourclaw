@@ -124,6 +124,8 @@
 - `providerRetryBudget`
 - `totalDeadlineMs`
 
+说明：`ourclaw-manager` 的 typed runtime client 应优先只绑定以上 stable 字段；这些 provisional 字段可继续通过原始 JSON / 调试路径使用，但不应纳入稳定 typed snapshot。
+
 ## 8. `diagnostics.summary`
 
 ### stable
