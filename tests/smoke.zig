@@ -621,6 +621,7 @@ test "session get and compact close the loop for session summary" {
     };
     try std.testing.expect(compact_envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, compact_envelope.result.?.success_json, "\"summaryText\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, compact_envelope.result.?.success_json, "\"removedCount\":") != null);
 
     const get_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_summary_01" } },
@@ -641,6 +642,10 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"memoryEntryCount\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerId\":\"mock_openai_session_summary\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolTraceCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"firstEventSeq\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"lastEventSeq\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"turnCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"assistantResponseCount\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerLatencyMs\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRoundBudget\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRoundsRemaining\":") != null);
@@ -649,6 +654,12 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolCallBudget\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolCallsRemaining\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRetryBudget\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"promptTokens\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"completionTokens\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"totalTokens\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"replay\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"latestTurn\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"counts\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"totalDeadlineMs\":") != null);
 }
 
@@ -1037,6 +1048,125 @@ test "memory snapshot export and migrate apply close retrieval route" {
     try std.testing.expect(migrate_envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, migrate_envelope.result.?.success_json, "\"toVersion\":2") != null);
     try std.testing.expect(std.mem.indexOf(u8, migrate_envelope.result.?.success_json, "\"snapshot\":{\"version\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, migrate_envelope.result.?.success_json, "\"snapshotJson\":\"{\\\"version\\\":2") != null);
+}
+
+test "memory snapshot export exposes import-ready roundtrip" {
+    var source_app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer source_app.destroy();
+
+    try source_app.memory_runtime.appendUserPrompt("sess_mem_roundtrip", "hello \"roundtrip\" memory");
+    try source_app.memory_runtime.appendToolResult("sess_mem_roundtrip", "http_request", "{\"status\":200,\"body\":{\"nested\":true}}");
+    try source_app.memory_runtime.appendAssistantResponse("sess_mem_roundtrip", "roundtrip memory is ready");
+    const compact_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } },
+        .{ .key = "keep_last", .value = .{ .integer = 3 } },
+    };
+    const compact_envelope = try source_app.makeDispatcher().dispatch(.{
+        .request_id = "req_memory_roundtrip_compact",
+        .method = "session.compact",
+        .params = compact_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (compact_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(compact_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, compact_envelope.result.?.success_json, "\"summaryText\":") != null);
+
+    var source_dispatcher = source_app.makeDispatcher();
+    const export_envelope = try source_dispatcher.dispatch(.{
+        .request_id = "req_memory_snapshot_export_roundtrip",
+        .method = "memory.snapshot_export",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (export_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(export_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, export_envelope.result.?.success_json, "\"snapshotJson\":\"{\\\"version\\\":2") != null);
+
+    const snapshot_json = try source_app.memory_runtime.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot_json);
+
+    var imported_app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer imported_app.destroy();
+    var imported_dispatcher = imported_app.makeDispatcher();
+
+    const import_params = [_]framework.ValidationField{.{ .key = "snapshot_json", .value = .{ .string = snapshot_json } }};
+    const import_envelope = try imported_dispatcher.dispatch(.{
+        .request_id = "req_memory_snapshot_import_roundtrip",
+        .method = "memory.snapshot_import",
+        .params = import_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (import_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(import_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, import_envelope.result.?.success_json, "\"importedCount\":4") != null);
+
+    const summary_params = [_]framework.ValidationField{.{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } }};
+    const summary_envelope = try imported_dispatcher.dispatch(.{
+        .request_id = "req_memory_summary_roundtrip",
+        .method = "memory.summary",
+        .params = summary_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (summary_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(summary_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, summary_envelope.result.?.success_json, "sess_mem_roundtrip") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_envelope.result.?.success_json, "roundtrip memory") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_envelope.result.?.success_json, "nested") != null);
+
+    const retrieve_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } },
+        .{ .key = "query", .value = .{ .string = "roundtrip" } },
+    };
+    const retrieve_envelope = try imported_dispatcher.dispatch(.{
+        .request_id = "req_memory_retrieve_roundtrip",
+        .method = "memory.retrieve",
+        .params = retrieve_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (retrieve_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(retrieve_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve_envelope.result.?.success_json, "\"rank\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve_envelope.result.?.success_json, "assistant_response") != null);
+
+    const nested_retrieve_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } },
+        .{ .key = "query", .value = .{ .string = "nested" } },
+    };
+    const nested_retrieve_envelope = try imported_dispatcher.dispatch(.{
+        .request_id = "req_memory_retrieve_roundtrip_nested",
+        .method = "memory.retrieve",
+        .params = nested_retrieve_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (nested_retrieve_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(nested_retrieve_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, nested_retrieve_envelope.result.?.success_json, "http_request") != null);
+    try std.testing.expect(std.mem.indexOf(u8, nested_retrieve_envelope.result.?.success_json, "nested") != null);
 }
 
 test "memory commands expose summary and retrieval" {
@@ -1102,6 +1232,34 @@ test "memory commands expose summary and retrieval" {
     };
     try std.testing.expect(summary.ok);
     try std.testing.expect(std.mem.indexOf(u8, summary.result.?.success_json, "\"summaryText\":") != null);
+
+    const exported = try dispatcher.dispatch(.{ .request_id = "req_memory_export", .method = "memory.snapshot_export", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer if (exported.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(exported.ok);
+    try std.testing.expect(std.mem.indexOf(u8, exported.result.?.success_json, "\"entryCount\":") != null);
+
+    const import_params = [_]framework.ValidationField{.{ .key = "snapshot_json", .value = .{ .string = "{\"version\":2,\"entries\":[{\"sessionId\":\"sess_import_smoke\",\"kind\":\"user_prompt\",\"content\":{\"text\":\"hello\"}}]}" } }};
+    const imported = try dispatcher.dispatch(.{ .request_id = "req_memory_import", .method = "memory.snapshot_import", .params = import_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (imported.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(imported.ok);
+    try std.testing.expect(std.mem.indexOf(u8, imported.result.?.success_json, "\"importedCount\":1") != null);
+
+    const imported_summary_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_import_smoke" } },
+    };
+    const imported_summary = try dispatcher.dispatch(.{ .request_id = "req_memory_summary_imported", .method = "memory.summary", .params = imported_summary_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (imported_summary.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(imported_summary.ok);
+    try std.testing.expect(std.mem.indexOf(u8, imported_summary.result.?.success_json, "sess_import_smoke") != null);
 
     const retrieve_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_mem" } },

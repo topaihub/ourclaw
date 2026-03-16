@@ -546,6 +546,28 @@
   - `ourclaw` 测试已再次更新并通过：`zig build test --summary all`（165/165）
   - `voice` 已满足 B4 单域完成定义；`B4` 现已整体完成
 
+- **A1 已完成（2026-03-16）**：
+  - `framework` 已新增 shared capability manifest 合同与 JSON helper，不再要求业务层手写 capability JSON 结构
+  - `ourclaw/src/runtime/capability_manifest.zig` 已成为 `ourclaw` 侧唯一 capability 装配入口
+  - `app.meta` 已改为消费共享 manifest，而不是在命令实现里散落维护 `adapters/providers/channels/tools/commands/supports*`
+  - 验证：`framework` `zig build test --summary all` 通过（121/121），`ourclaw` `zig build test --summary all` 通过（166/166）
+
+- **A2 已完成（2026-03-16）**：
+  - `framework` 已新增共享 `stream_sink / stream_event / stream_body` runtime 合同
+  - `ourclaw` 现已把 `ByteSink`、通用 JSON event renderer，以及 `StreamingBody / WebSocketBody / ClientEventHandler` 的 erased contract 回抽到 `framework`
+  - `stream_projection`、`stream_registry`、`stream_output` 的业务协议与执行恢复逻辑仍保留在 `ourclaw`，没有越界把业务语义抽进 framework
+  - 验证：`framework` `zig build test --summary all` 通过（124/124），`ourclaw` `zig build test --summary all` 通过（165/165）
+
+- **B2 第二子步已完成（2026-03-16）**：
+  - `memory.snapshot_export` / `memory.migrate_apply` 已补 `snapshotJson` import-ready 字段，输出面与 `memory.snapshot_import.snapshot_json` 对齐
+  - `memory_runtime.zig` 已改为结构化 snapshot import，支持 nested `tool_result` 与 compact 后 `session_summary` 的 canonical roundtrip
+  - `memory.summary` / `session.compact` 已修复 `summaryText` JSON escaping，summary 内容中的引号与换行不再破坏命令返回体
+  - domain + smoke 已补 export -> compact -> import -> summary/retrieve 回归
+  - 验证：`zig build test --summary all` 通过（169/169）
+
+- **当前下一步（2026-03-16）**：
+  - 继续评估 `B2` canonical snapshot schema 是否要稳定保留 `tsUnixMs / embeddingProvider / embeddingModel` 等 richer metadata；若不再扩 `B2`，则切到 `B3`
+
 ## 续写约定
 
 - 当前执行状态优先更新根级 `docs/planning/current-task-board.md`
