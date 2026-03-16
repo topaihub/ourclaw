@@ -458,11 +458,22 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
 
     if (std.mem.eql(u8, args[0], "memory.summary")) {
         if (args.len < 2) return error.MissingSessionId;
-        const count: usize = if (args.len >= 3) 2 else 1;
+        var with_max_items: ?i64 = if (args.len >= 3 and !std.mem.startsWith(u8, args[2], "--")) try std.fmt.parseInt(i64, args[2], 10) else null;
+        var index: usize = if (with_max_items != null) 3 else 2;
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--max-items")) {
+                index += 1;
+                if (index >= args.len) return error.MissingMaxItems;
+                with_max_items = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+        }
+
+        const count: usize = 1 + @as(usize, if (with_max_items != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         params[0] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
-        if (args.len >= 3) {
-            params[1] = .{ .key = "max_items", .value = .{ .integer = try std.fmt.parseInt(i64, args[2], 10) } };
+        if (with_max_items) |max_items| {
+            params[1] = .{ .key = "max_items", .value = .{ .integer = max_items } };
         }
         return .{
             .request = .{ .request_id = "cli_req_memory_summary", .method = "memory.summary", .params = params, .source = .cli, .authority = .admin },
@@ -482,11 +493,34 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
 
     if (std.mem.eql(u8, args[0], "session.get")) {
         if (args.len < 2) return error.MissingSessionId;
-        const count: usize = if (args.len >= 3) 2 else 1;
+        var with_summary_items: ?i64 = if (args.len >= 3 and !std.mem.startsWith(u8, args[2], "--")) try std.fmt.parseInt(i64, args[2], 10) else null;
+        var with_recent_turns_limit: ?i64 = null;
+        var index: usize = if (with_summary_items != null) 3 else 2;
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--summary-items")) {
+                index += 1;
+                if (index >= args.len) return error.MissingSummaryItems;
+                with_summary_items = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--recent-turns-limit")) {
+                index += 1;
+                if (index >= args.len) return error.MissingRecentTurnsLimit;
+                with_recent_turns_limit = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+        }
+
+        const count: usize = 1 + @as(usize, if (with_summary_items != null) 1 else 0) + @as(usize, if (with_recent_turns_limit != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         params[0] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
-        if (args.len >= 3) {
-            params[1] = .{ .key = "summary_items", .value = .{ .integer = try std.fmt.parseInt(i64, args[2], 10) } };
+        var param_index: usize = 1;
+        if (with_summary_items) |summary_items| {
+            params[param_index] = .{ .key = "summary_items", .value = .{ .integer = summary_items } };
+            param_index += 1;
+        }
+        if (with_recent_turns_limit) |recent_turns_limit| {
+            params[param_index] = .{ .key = "recent_turns_limit", .value = .{ .integer = recent_turns_limit } };
         }
         return .{
             .request = .{ .request_id = "cli_req_session_get", .method = "session.get", .params = params, .source = .cli, .authority = .admin },
@@ -1154,4 +1188,48 @@ test "cli adapter parses agent strategy flags" {
     }
     try std.testing.expect(saw_stream_max_tool_rounds);
     try std.testing.expect(saw_stream_allow_provider_tools);
+}
+
+test "cli adapter parses session and memory optional flags" {
+    var owned_session = try parseArgs(std.testing.allocator, &.{
+        "session.get",
+        "sess_cli_session_get",
+        "--summary-items",
+        "7",
+        "--recent-turns-limit",
+        "4",
+    });
+    defer owned_session.deinit();
+
+    var saw_summary_items = false;
+    var saw_recent_turns_limit = false;
+    for (owned_session.params) |field| {
+        if (std.mem.eql(u8, field.key, "summary_items")) {
+            saw_summary_items = true;
+            try std.testing.expectEqual(@as(i64, 7), field.value.integer);
+        }
+        if (std.mem.eql(u8, field.key, "recent_turns_limit")) {
+            saw_recent_turns_limit = true;
+            try std.testing.expectEqual(@as(i64, 4), field.value.integer);
+        }
+    }
+    try std.testing.expect(saw_summary_items);
+    try std.testing.expect(saw_recent_turns_limit);
+
+    var owned_memory = try parseArgs(std.testing.allocator, &.{
+        "memory.summary",
+        "sess_cli_memory_summary",
+        "--max-items",
+        "6",
+    });
+    defer owned_memory.deinit();
+
+    var saw_max_items = false;
+    for (owned_memory.params) |field| {
+        if (std.mem.eql(u8, field.key, "max_items")) {
+            saw_max_items = true;
+            try std.testing.expectEqual(@as(i64, 6), field.value.integer);
+        }
+    }
+    try std.testing.expect(saw_max_items);
 }
