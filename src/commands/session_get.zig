@@ -59,6 +59,9 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendOptionalStringField(writer, "latestAssistantResponse", snapshot.latest_assistant_response, false);
     try appendOptionalStringField(writer, "providerId", snapshot.latest_provider_id, false);
     try appendOptionalStringField(writer, "model", snapshot.latest_model, false);
+    try appendOptionalBoolField(writer, "allowProviderTools", snapshot.latest_allow_provider_tools, false);
+    try appendOptionalStringField(writer, "promptProfile", snapshot.latest_prompt_profile, false);
+    try appendOptionalStringField(writer, "responseMode", snapshot.latest_response_mode, false);
     try appendOptionalStringField(writer, "lastToolId", snapshot.latest_tool_id, false);
     try appendOptionalRawJsonField(writer, "latestToolResult", snapshot.latest_tool_result_json, false);
     try appendUnsignedField(writer, "toolRounds", snapshot.latest_tool_rounds, false);
@@ -108,6 +111,9 @@ fn appendRecentTurnsBlock(writer: anytype, recent_turns: []const session_state.R
         try appendSigned64Field(writer, "tsUnixMs", turn.ts_unix_ms, false);
         try appendOptionalStringField(writer, "providerId", turn.provider_id, false);
         try appendOptionalStringField(writer, "model", turn.model, false);
+        try appendOptionalBoolField(writer, "allowProviderTools", turn.allow_provider_tools, false);
+        try appendOptionalStringField(writer, "promptProfile", turn.prompt_profile, false);
+        try appendOptionalStringField(writer, "responseMode", turn.response_mode, false);
         try appendOptionalStringField(writer, "toolId", turn.tool_id, false);
         try appendUnsignedField(writer, "toolRounds", turn.tool_rounds, false);
         try appendUnsignedField(writer, "maxToolRounds", turn.max_tool_rounds, false);
@@ -157,6 +163,9 @@ fn appendLatestTurnBlock(writer: anytype, snapshot: session_state.SessionSnapsho
     try writer.writeAll(",\"latestTurn\":{");
     try appendOptionalStringField(writer, "providerId", snapshot.latest_provider_id, true);
     try appendOptionalStringField(writer, "model", snapshot.latest_model, false);
+    try appendOptionalBoolField(writer, "allowProviderTools", snapshot.latest_allow_provider_tools, false);
+    try appendOptionalStringField(writer, "promptProfile", snapshot.latest_prompt_profile, false);
+    try appendOptionalStringField(writer, "responseMode", snapshot.latest_response_mode, false);
     try appendOptionalStringField(writer, "toolId", snapshot.latest_tool_id, false);
     try appendUnsignedField(writer, "toolRounds", snapshot.latest_tool_rounds, false);
     try appendUnsignedField(writer, "maxToolRounds", snapshot.latest_max_tool_rounds, false);
@@ -215,6 +224,17 @@ fn appendOptionalUnsignedField(writer: anytype, key: []const u8, value: ?u64, fi
     try writer.writeByte(':');
     if (value) |number| {
         try writer.print("{d}", .{number});
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+fn appendOptionalBoolField(writer: anytype, key: []const u8, value: ?bool, first: bool) anyerror!void {
+    if (!first) try writer.writeByte(',');
+    try writeJsonString(writer, key);
+    try writer.writeByte(':');
+    if (value) |flag| {
+        try writer.writeAll(if (flag) "true" else "false");
     } else {
         try writer.writeAll("null");
     }

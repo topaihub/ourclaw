@@ -58,6 +58,9 @@ pub const SessionSnapshot = struct {
     latest_assistant_response: ?[]u8 = null,
     latest_provider_id: ?[]u8 = null,
     latest_model: ?[]u8 = null,
+    latest_allow_provider_tools: ?bool = null,
+    latest_prompt_profile: ?[]u8 = null,
+    latest_response_mode: ?[]u8 = null,
     latest_tool_id: ?[]u8 = null,
     latest_tool_result_json: ?[]u8 = null,
     latest_tool_rounds: usize = 0,
@@ -89,6 +92,8 @@ pub const SessionSnapshot = struct {
         if (self.latest_assistant_response) |value| allocator.free(value);
         if (self.latest_provider_id) |value| allocator.free(value);
         if (self.latest_model) |value| allocator.free(value);
+        if (self.latest_prompt_profile) |value| allocator.free(value);
+        if (self.latest_response_mode) |value| allocator.free(value);
         if (self.latest_tool_id) |value| allocator.free(value);
         if (self.latest_tool_result_json) |value| allocator.free(value);
         if (self.last_error_code) |value| allocator.free(value);
@@ -102,6 +107,9 @@ pub const RecentTurnSnapshot = struct {
     ts_unix_ms: i64,
     provider_id: ?[]u8 = null,
     model: ?[]u8 = null,
+    allow_provider_tools: ?bool = null,
+    prompt_profile: ?[]u8 = null,
+    response_mode: ?[]u8 = null,
     tool_id: ?[]u8 = null,
     tool_rounds: usize = 0,
     max_tool_rounds: usize = 0,
@@ -116,6 +124,8 @@ pub const RecentTurnSnapshot = struct {
         if (self.execution_id) |value| allocator.free(value);
         if (self.provider_id) |value| allocator.free(value);
         if (self.model) |value| allocator.free(value);
+        if (self.prompt_profile) |value| allocator.free(value);
+        if (self.response_mode) |value| allocator.free(value);
         if (self.tool_id) |value| allocator.free(value);
         if (self.error_code) |value| allocator.free(value);
     }
@@ -213,6 +223,9 @@ pub const SessionStore = struct {
         var latest_assistant_response: ?[]u8 = null;
         var latest_provider_id: ?[]u8 = null;
         var latest_model: ?[]u8 = null;
+        var latest_allow_provider_tools: ?bool = null;
+        var latest_prompt_profile: ?[]u8 = null;
+        var latest_response_mode: ?[]u8 = null;
         var latest_tool_id: ?[]u8 = null;
         var latest_tool_result_json: ?[]u8 = null;
         var latest_tool_rounds: usize = 0;
@@ -296,6 +309,9 @@ pub const SessionStore = struct {
             if (std.mem.eql(u8, event.kind, "session.turn.completed")) {
                 if (latest_provider_id == null) latest_provider_id = try cloneJsonStringField(allocator, event.payload_json, "providerId");
                 if (latest_model == null) latest_model = try cloneJsonStringField(allocator, event.payload_json, "model");
+                if (latest_allow_provider_tools == null) latest_allow_provider_tools = parseJsonBoolField(event.payload_json, "allowProviderTools");
+                if (latest_prompt_profile == null) latest_prompt_profile = try cloneJsonStringField(allocator, event.payload_json, "promptProfile");
+                if (latest_response_mode == null) latest_response_mode = try cloneJsonStringField(allocator, event.payload_json, "responseMode");
                 if (latest_tool_id == null) latest_tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
                 if (latest_provider_latency_ms == null) latest_provider_latency_ms = parseJsonUnsignedField(event.payload_json, "providerLatencyMs");
                 if (latest_tool_rounds == 0) latest_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
@@ -338,6 +354,9 @@ pub const SessionStore = struct {
             .latest_assistant_response = latest_assistant_response,
             .latest_provider_id = latest_provider_id,
             .latest_model = latest_model,
+            .latest_allow_provider_tools = latest_allow_provider_tools,
+            .latest_prompt_profile = latest_prompt_profile,
+            .latest_response_mode = latest_response_mode,
             .latest_tool_id = latest_tool_id,
             .latest_tool_result_json = latest_tool_result_json,
             .latest_tool_rounds = latest_tool_rounds,
@@ -406,6 +425,9 @@ pub const SessionStore = struct {
 
         turn_snapshot.provider_id = try cloneJsonStringField(allocator, event.payload_json, "providerId");
         turn_snapshot.model = try cloneJsonStringField(allocator, event.payload_json, "model");
+        turn_snapshot.allow_provider_tools = parseJsonBoolField(event.payload_json, "allowProviderTools");
+        turn_snapshot.prompt_profile = try cloneJsonStringField(allocator, event.payload_json, "promptProfile");
+        turn_snapshot.response_mode = try cloneJsonStringField(allocator, event.payload_json, "responseMode");
         turn_snapshot.tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
         turn_snapshot.tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
         turn_snapshot.max_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "maxToolRounds") orelse 0);
@@ -439,6 +461,17 @@ pub const SessionStore = struct {
         while (value_end < suffix.len and suffix[value_end] >= '0' and suffix[value_end] <= '9') : (value_end += 1) {}
         if (value_end == 0) return null;
         return std.fmt.parseUnsigned(u64, suffix[0..value_end], 10) catch null;
+    }
+
+    fn parseJsonBoolField(payload_json: []const u8, key: []const u8) ?bool {
+        var pattern_buf: [64]u8 = undefined;
+        const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\":", .{key}) catch return null;
+        const start = std.mem.indexOf(u8, payload_json, pattern) orelse return null;
+        const value_start = start + pattern.len;
+        const suffix = payload_json[value_start..];
+        if (std.mem.startsWith(u8, suffix, "true")) return true;
+        if (std.mem.startsWith(u8, suffix, "false")) return false;
+        return null;
     }
 
     fn cloneEvents(allocator: std.mem.Allocator, source: []const SessionEvent, start_index: usize) anyerror![]SessionEvent {
@@ -492,7 +525,7 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try store.appendEvent("sess_turn", "tool.call.started", "{\"toolId\":\"echo\"}");
     try store.appendEvent("sess_turn", "tool.result", "{\"ok\":true}");
     try store.appendEvent("sess_turn", "assistant.response", "hello back");
-    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"maxToolRounds\":4,\"providerRoundBudget\":4,\"providerRoundsRemaining\":2,\"providerAttemptBudget\":8,\"providerAttemptsRemaining\":6,\"toolCallBudget\":3,\"toolCallsRemaining\":1,\"providerRetryBudget\":1,\"totalDeadlineMs\":250,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3,\"promptTokens\":12,\"completionTokens\":8,\"totalTokens\":20}");
+    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"allowProviderTools\":true,\"promptProfile\":\"default\",\"responseMode\":\"standard\",\"toolId\":\"echo\",\"toolRounds\":1,\"maxToolRounds\":4,\"providerRoundBudget\":4,\"providerRoundsRemaining\":2,\"providerAttemptBudget\":8,\"providerAttemptsRemaining\":6,\"toolCallBudget\":3,\"toolCallsRemaining\":1,\"providerRetryBudget\":1,\"totalDeadlineMs\":250,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3,\"promptTokens\":12,\"completionTokens\":8,\"totalTokens\":20}");
 
     var snapshot = try store.snapshotMeta(std.testing.allocator, "sess_turn");
     defer snapshot.deinit(std.testing.allocator);
@@ -503,6 +536,9 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try std.testing.expectEqualStrings("hello back", snapshot.latest_assistant_response.?);
     try std.testing.expectEqualStrings("mock_openai", snapshot.latest_provider_id.?);
     try std.testing.expectEqualStrings("gpt-4o-mini", snapshot.latest_model.?);
+    try std.testing.expectEqual(true, snapshot.latest_allow_provider_tools.?);
+    try std.testing.expectEqualStrings("default", snapshot.latest_prompt_profile.?);
+    try std.testing.expectEqualStrings("standard", snapshot.latest_response_mode.?);
     try std.testing.expectEqualStrings("echo", snapshot.latest_tool_id.?);
     try std.testing.expectEqual(@as(usize, 1), snapshot.latest_tool_rounds);
     try std.testing.expectEqual(@as(usize, 4), snapshot.latest_max_tool_rounds);
