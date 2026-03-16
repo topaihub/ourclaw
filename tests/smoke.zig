@@ -1443,8 +1443,32 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"restartCount\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"startApplied\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"restartBudgetRemaining\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"budgetExhausted\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"action\":\"restart\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"gatewayHandlerAttached\":") != null);
+
+    const restart_second = try dispatcher.dispatch(.{ .request_id = "req_service_restart_2", .method = "service.restart", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (restart_second.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(restart_second.ok);
+
+    const restart_third = try dispatcher.dispatch(.{ .request_id = "req_service_restart_3", .method = "service.restart", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (restart_third.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(restart_third.ok);
+    const restart_denied = try dispatcher.dispatch(.{ .request_id = "req_service_restart_4", .method = "service.restart", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (restart_denied.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(restart_denied.ok);
+    try std.testing.expect(std.mem.indexOf(u8, restart_denied.result.?.success_json, "\"budgetExhausted\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart_denied.result.?.success_json, "\"restartBudgetRemaining\":0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart_denied.result.?.success_json, "\"stopApplied\":false") != null);
 
     const gateway_status = try dispatcher.dispatch(.{ .request_id = "req_gateway_status", .method = "gateway.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_status.result.?) {
