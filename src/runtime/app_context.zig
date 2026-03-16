@@ -62,6 +62,8 @@ pub const AppContext = struct {
     runtime_host: *runtime_host.RuntimeHost,
     service_manager: *service_manager.ServiceManager,
     daemon: *daemon.Daemon,
+    effective_gateway_require_pairing: bool,
+    effective_runtime_max_tool_rounds: usize,
     config_hooks: *config_runtime_hooks.ConfigRuntimeHooks,
     services: services_model.CommandServices,
 
@@ -70,6 +72,8 @@ pub const AppContext = struct {
     pub fn init(allocator: std.mem.Allocator, bootstrap: AppBootstrapConfig) anyerror!*Self {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
+        self.effective_gateway_require_pairing = true;
+        self.effective_runtime_max_tool_rounds = 4;
 
         const field_registry = try allocator.create(config.ConfigFieldRegistry);
         errdefer allocator.destroy(field_registry);
@@ -198,6 +202,8 @@ pub const AppContext = struct {
             provider_registry,
             memory_runtime_ref,
             heartbeat_ref,
+            &self.effective_gateway_require_pairing,
+            &self.effective_runtime_max_tool_rounds,
         );
 
         self.* = .{
@@ -228,6 +234,8 @@ pub const AppContext = struct {
             .runtime_host = runtime_host_ref,
             .service_manager = service_manager_ref,
             .daemon = daemon_ref,
+            .effective_gateway_require_pairing = self.effective_gateway_require_pairing,
+            .effective_runtime_max_tool_rounds = self.effective_runtime_max_tool_rounds,
             .config_hooks = config_hooks,
             .services = undefined,
         };
@@ -259,6 +267,7 @@ pub const AppContext = struct {
         try commands.registerBuiltins(self.framework_context.command_registry, &self.services);
         try self.bootstrapDefaults();
         try self.syncMemoryEmbeddingConfigFromStore();
+        try self.syncRuntimeConfigFromStore();
         try self.secret_store.put("openai:api_key", "demo-secret");
         return self;
     }
@@ -363,6 +372,18 @@ pub const AppContext = struct {
             if (value.* == .string) {
                 try self.memory_runtime.setEmbeddingModel(value.string);
             }
+        }
+    }
+
+    fn syncRuntimeConfigFromStore(self: *Self) anyerror!void {
+        const require_pairing = self.framework_context.config_store.get("gateway.require_pairing");
+        if (require_pairing) |value| {
+            if (value.* == .boolean) self.effective_gateway_require_pairing = value.boolean;
+        }
+
+        const max_tool_rounds = self.framework_context.config_store.get("runtime.max_tool_rounds");
+        if (max_tool_rounds) |value| {
+            if (value.* == .integer) self.effective_runtime_max_tool_rounds = @intCast(value.integer);
         }
     }
 };

@@ -12,6 +12,8 @@ pub const ConfigRuntimeHooks = struct {
     provider_registry: *providers.ProviderRegistry,
     memory_runtime: *memory_runtime.MemoryRuntime,
     heartbeat: *heartbeat.Heartbeat,
+    gateway_require_pairing: *bool,
+    runtime_max_tool_rounds: *usize,
 
     const Self = @This();
 
@@ -30,6 +32,8 @@ pub const ConfigRuntimeHooks = struct {
         provider_registry: *providers.ProviderRegistry,
         memory_runtime_ref: *memory_runtime.MemoryRuntime,
         hb: *heartbeat.Heartbeat,
+        gateway_require_pairing: *bool,
+        runtime_max_tool_rounds: *usize,
     ) Self {
         return .{
             .allocator = allocator,
@@ -39,6 +43,8 @@ pub const ConfigRuntimeHooks = struct {
             .provider_registry = provider_registry,
             .memory_runtime = memory_runtime_ref,
             .heartbeat = hb,
+            .gateway_require_pairing = gateway_require_pairing,
+            .runtime_max_tool_rounds = runtime_max_tool_rounds,
         };
     }
 
@@ -104,6 +110,10 @@ pub const ConfigRuntimeHooks = struct {
             const parsed = try parseOptionalString(self.allocator, change.new_value_json);
             defer if (parsed) |value| self.allocator.free(value);
             try self.memory_runtime.setEmbeddingModel(parsed);
+        } else if (std.mem.eql(u8, change.path, "gateway.require_pairing")) {
+            self.gateway_require_pairing.* = try parseBoolean(change.new_value_json);
+        } else if (std.mem.eql(u8, change.path, "runtime.max_tool_rounds")) {
+            self.runtime_max_tool_rounds.* = @intCast(try parseInteger(change.new_value_json));
         }
 
         self.heartbeat.beat();
@@ -124,6 +134,18 @@ pub const ConfigRuntimeHooks = struct {
         var parsed = try framework.ConfigValueParser.parseJsonValue(allocator, .string, value_json);
         defer parsed.deinit(allocator);
         return try allocator.dupe(u8, parsed.string);
+    }
+
+    fn parseBoolean(value_json: []const u8) anyerror!bool {
+        var parsed = try framework.ConfigValueParser.parseJsonValue(std.heap.page_allocator, .boolean, value_json);
+        defer parsed.deinit(std.heap.page_allocator);
+        return parsed.boolean;
+    }
+
+    fn parseInteger(value_json: []const u8) anyerror!i64 {
+        var parsed = try framework.ConfigValueParser.parseJsonValue(std.heap.page_allocator, .integer, value_json);
+        defer parsed.deinit(std.heap.page_allocator);
+        return parsed.integer;
     }
 
     fn applySideEffectErased(ptr: *anyopaque, change: *const framework.ConfigChange) anyerror!void {

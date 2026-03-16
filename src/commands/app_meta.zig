@@ -80,6 +80,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendUnsignedField(writer, "queuedTasks", queued_tasks, false);
     try appendUnsignedField(writer, "runningTasks", running_tasks, false);
     try appendUnsignedField(writer, "completedTasks", completed_tasks, false);
+    try appendBoolField(writer, "gatewayRequirePairing", services.app_context_ptr != null and @as(*const @import("../runtime/app_context.zig").AppContext, @ptrCast(@alignCast(services.app_context_ptr.?))).effective_gateway_require_pairing, false);
+    try appendUnsignedField(writer, "runtimeMaxToolRounds", if (services.app_context_ptr != null) @as(*const @import("../runtime/app_context.zig").AppContext, @ptrCast(@alignCast(services.app_context_ptr.?))).effective_runtime_max_tool_rounds else 0, false);
     try writer.writeByte('}');
 
     try writer.writeAll(",\"capabilities\":");
