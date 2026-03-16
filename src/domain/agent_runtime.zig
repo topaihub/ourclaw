@@ -188,6 +188,8 @@ pub const AgentRuntime = struct {
         var provider_rounds: usize = 0;
         var remaining_tool_budget = request.tool_call_budget;
         var remaining_provider_attempt_budget = request.provider_attempt_budget;
+        var prompt_tokens: ?u32 = null;
+        var completion_tokens: ?u32 = null;
 
         if (request.tool_id) |tool_id| {
             try ensureNotCancelled(request);
@@ -310,6 +312,8 @@ pub const AgentRuntime = struct {
                         if (chunk.finish_reason) |finish_reason| {
                             streamed_finish_reason = try self.allocator.dupe(u8, finish_reason);
                         }
+                        if (chunk.prompt_tokens) |value| prompt_tokens = value;
+                        if (chunk.completion_tokens) |value| completion_tokens = value;
                     },
                 }
             }
@@ -366,18 +370,35 @@ pub const AgentRuntime = struct {
         }
 
         const provider_latency_ms: u64 = @intCast(@max(std.time.milliTimestamp() - started_at, 0));
-        const turn_payload = if (tool_id_owned) |tool_id|
-            try std.fmt.allocPrint(
-                self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":\"{s}\",\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget, tool_id, tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count },
-            )
-        else
-            try std.fmt.allocPrint(
-                self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":null,\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget, tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count },
-            );
+        var turn_buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer turn_buf.deinit(self.allocator);
+        const turn_writer = turn_buf.writer(self.allocator);
+        try turn_writer.print("{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":", .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget });
+        if (tool_id_owned) |tool_id| {
+            try turn_writer.print("\"{s}\"", .{tool_id});
+        } else {
+            try turn_writer.writeAll("null");
+        }
+        try turn_writer.print(",\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d},\"promptTokens\":", .{ tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count });
+        if (prompt_tokens) |value| {
+            try turn_writer.print("{d}", .{value});
+        } else {
+            try turn_writer.writeAll("null");
+        }
+        try turn_writer.writeAll(",\"completionTokens\":");
+        if (completion_tokens) |value| {
+            try turn_writer.print("{d}", .{value});
+        } else {
+            try turn_writer.writeAll("null");
+        }
+        try turn_writer.writeAll(",\"totalTokens\":");
+        if (prompt_tokens != null or completion_tokens != null) {
+            try turn_writer.print("{d}", .{@as(u64, @intCast((prompt_tokens orelse 0) + (completion_tokens orelse 0)))});
+        } else {
+            try turn_writer.writeAll("null");
+        }
+        try turn_writer.writeByte('}');
+        const turn_payload = try self.allocator.dupe(u8, turn_buf.items);
         defer self.allocator.free(turn_payload);
         _ = try self.stream_output.publishWithExecution(
             request.session_id,

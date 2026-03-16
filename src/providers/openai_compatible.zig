@@ -59,23 +59,40 @@ pub fn chatStream(
         try chunks.append(allocator, .{
             .kind = .done,
             .finish_reason = try allocator.dupe(u8, "tool_calls"),
+            .prompt_tokens = 14,
+            .completion_tokens = 4,
         });
         return chunks.toOwnedSlice(allocator);
     }
 
     if (containsMessage(request.messages, "PROMPT_ASSEMBLY_PROBE")) {
         try appendTextChunks(allocator, &chunks, &.{ "prompt ", "assembly ", "ok" });
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = try allocator.dupe(u8, "stop"),
+            .prompt_tokens = 20,
+            .completion_tokens = 3,
+        });
+        return chunks.toOwnedSlice(allocator);
     } else if (containsMessage(request.messages, "Tool Result:")) {
         try appendTextChunks(allocator, &chunks, &.{ "final ", "response ", "after ", "tool" });
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = try allocator.dupe(u8, "stop"),
+            .prompt_tokens = 18,
+            .completion_tokens = 9,
+        });
+        return chunks.toOwnedSlice(allocator);
     } else {
         try appendTextChunks(allocator, &chunks, &.{ "mock ", "openai ", "response" });
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = try allocator.dupe(u8, "stop"),
+            .prompt_tokens = 12,
+            .completion_tokens = 8,
+        });
+        return chunks.toOwnedSlice(allocator);
     }
-
-    try chunks.append(allocator, .{
-        .kind = .done,
-        .finish_reason = try allocator.dupe(u8, "stop"),
-    });
-    return chunks.toOwnedSlice(allocator);
 }
 
 fn chatStreamSse(
@@ -124,6 +141,7 @@ fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![
     defer tool_input.deinit(allocator);
     var finish_reason: ?[]u8 = null;
     defer if (finish_reason) |value| allocator.free(value);
+    var appended_done = false;
 
     var events = std.mem.splitSequence(u8, sse_body, "\n\n");
     while (events.next()) |event_block| {
@@ -164,6 +182,19 @@ fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![
             if (finish_reason) |owned| allocator.free(owned);
             finish_reason = try allocator.dupe(u8, value);
         }
+
+        const prompt_tokens = extractUnsignedField(event_data.items, "prompt_tokens");
+        const completion_tokens = extractUnsignedField(event_data.items, "completion_tokens");
+        if (prompt_tokens != null or completion_tokens != null) {
+            try chunks.append(allocator, .{
+                .kind = .done,
+                .finish_reason = if (finish_reason) |value| try allocator.dupe(u8, value) else try allocator.dupe(u8, "stop"),
+                .prompt_tokens = if (prompt_tokens) |value| @intCast(value) else null,
+                .completion_tokens = if (completion_tokens) |value| @intCast(value) else null,
+            });
+            appended_done = true;
+            finish_reason = null;
+        }
     }
 
     if (tool_name) |value| {
@@ -174,10 +205,14 @@ fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![
         });
         tool_name = null;
     }
-    try chunks.append(allocator, .{
-        .kind = .done,
-        .finish_reason = if (finish_reason) |value| try allocator.dupe(u8, value) else try allocator.dupe(u8, "stop"),
-    });
+    if (!appended_done) {
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = if (finish_reason) |value| try allocator.dupe(u8, value) else try allocator.dupe(u8, "stop"),
+            .prompt_tokens = null,
+            .completion_tokens = null,
+        });
+    }
 
     return chunks.toOwnedSlice(allocator);
 }

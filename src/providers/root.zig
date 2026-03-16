@@ -114,6 +114,8 @@ pub const ProviderStreamChunk = struct {
     tool_name: ?[]u8 = null,
     tool_input_json: ?[]u8 = null,
     finish_reason: ?[]u8 = null,
+    prompt_tokens: ?u32 = null,
+    completion_tokens: ?u32 = null,
 
     pub const Kind = enum {
         text_delta,
