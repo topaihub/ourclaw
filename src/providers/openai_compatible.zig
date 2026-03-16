@@ -66,6 +66,7 @@ pub fn chatStream(
     }
 
     if (containsMessage(request.messages, "PROMPT_ASSEMBLY_PROBE") and
+        containsMessage(request.messages, "Execution Strategy JSON:") and
         containsMessage(request.messages, "Compacted Session Summary:") and
         containsMessage(request.messages, "Recent Memory Recall:"))
     {

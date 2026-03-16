@@ -43,6 +43,12 @@ pub const PromptAssemblyInput = struct {
     response_mode: ResponseMode = .standard,
     session_event_count: usize = 0,
     tool_trace_count: usize = 0,
+    max_tool_rounds: usize = 4,
+    tool_call_budget: usize = 4,
+    provider_round_budget: usize = 4,
+    provider_attempt_budget: usize = 8,
+    provider_retry_budget: u8 = 0,
+    total_deadline_ms: u64 = 0,
     compacted_summary: ?[]const u8 = null,
     recall_summary: ?[]const u8 = null,
     tool_result_json: ?[]const u8 = null,
@@ -85,6 +91,11 @@ pub fn build(allocator: std.mem.Allocator, input: PromptAssemblyInput) anyerror!
             .content = try buildToolsPrompt(allocator, input.tool_registry.?),
         });
     }
+
+    try messages.append(allocator, .{
+        .role = .system,
+        .content = try buildExecutionStrategyPrompt(allocator, input),
+    });
 
     if (input.compacted_summary) |compacted_summary| {
         if (std.mem.trim(u8, compacted_summary, " \r\n\t").len > 0) {
@@ -134,6 +145,24 @@ fn buildToolsPrompt(allocator: std.mem.Allocator, tool_registry: *const ToolRegi
     return std.fmt.allocPrint(allocator, "Available Tools JSON:\n{s}", .{tools_json});
 }
 
+fn buildExecutionStrategyPrompt(allocator: std.mem.Allocator, input: PromptAssemblyInput) anyerror![]u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "Execution Strategy JSON:\n{{\"profile\":\"{s}\",\"responseMode\":\"{s}\",\"providerToolsEnabled\":{s},\"maxToolRounds\":{d},\"toolCallBudget\":{d},\"providerRoundBudget\":{d},\"providerAttemptBudget\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d}}}",
+        .{
+            @tagName(input.profile),
+            @tagName(input.response_mode),
+            if (input.allow_provider_tools) "true" else "false",
+            input.max_tool_rounds,
+            input.tool_call_budget,
+            input.provider_round_budget,
+            input.provider_attempt_budget,
+            input.provider_retry_budget,
+            input.total_deadline_ms,
+        },
+    );
+}
+
 test "prompt assembly builds system tools recall and user messages" {
     var tool_registry = tools.ToolRegistry.init(std.testing.allocator);
     defer tool_registry.deinit();
@@ -149,6 +178,12 @@ test "prompt assembly builds system tools recall and user messages" {
         .response_mode = .terse,
         .session_event_count = 4,
         .tool_trace_count = 1,
+        .max_tool_rounds = 1,
+        .tool_call_budget = 2,
+        .provider_round_budget = 3,
+        .provider_attempt_budget = 5,
+        .provider_retry_budget = 1,
+        .total_deadline_ms = 250,
         .compacted_summary = "condensed session state",
         .recall_summary = "remember previous answer",
         .tool_result_json = "{\"tool\":\"echo\"}",
@@ -156,15 +191,18 @@ test "prompt assembly builds system tools recall and user messages" {
     });
     defer result.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 6), result.messages.len);
+    try std.testing.expectEqual(@as(usize, 7), result.messages.len);
     try std.testing.expectEqual(ProviderRole.system, result.messages[0].role);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "System Prompt:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Profile=`concise_operator`") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Identity=`operator:alice`") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "Available Tools JSON:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "\"riskLevel\":\"high\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.messages[2].content, "Compacted Session Summary:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.messages[3].content, "Recent Memory Recall:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.messages[4].content, "PROMPT_ASSEMBLY_PROBE") != null);
-    try std.testing.expectEqual(ProviderRole.tool, result.messages[5].role);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[2].content, "Execution Strategy JSON:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[2].content, "\"maxToolRounds\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[2].content, "\"providerToolsEnabled\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[3].content, "Compacted Session Summary:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[4].content, "Recent Memory Recall:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[5].content, "PROMPT_ASSEMBLY_PROBE") != null);
+    try std.testing.expectEqual(ProviderRole.tool, result.messages[6].role);
 }
