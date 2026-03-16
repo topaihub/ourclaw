@@ -668,6 +668,7 @@ test "session get and compact close the loop for session summary" {
         .{ .key = "session_id", .value = .{ .string = "sess_summary_01" } },
         .{ .key = "prompt", .value = .{ .string = "PROMPT_ASSEMBLY_PROBE" } },
         .{ .key = "provider_id", .value = .{ .string = "mock_openai_session_summary" } },
+        .{ .key = "max_tool_rounds", .value = .{ .integer = 1 } },
     };
     const rerun_envelope = try dispatcher.dispatch(.{
         .request_id = "req_session_summary_rerun",
@@ -697,6 +698,7 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(get_after_rerun.ok);
     try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"usage\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"recentTurns\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"maxToolRounds\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"recovery\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"executionCursor\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"promptTokens\":36") != null);

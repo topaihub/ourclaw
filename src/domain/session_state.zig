@@ -61,6 +61,7 @@ pub const SessionSnapshot = struct {
     latest_tool_id: ?[]u8 = null,
     latest_tool_result_json: ?[]u8 = null,
     latest_tool_rounds: usize = 0,
+    latest_max_tool_rounds: usize = 0,
     latest_provider_latency_ms: ?u64 = null,
     latest_memory_entries_used: usize = 0,
     latest_provider_round_budget: usize = 0,
@@ -74,6 +75,10 @@ pub const SessionSnapshot = struct {
     latest_prompt_tokens: ?u64 = null,
     latest_completion_tokens: ?u64 = null,
     latest_total_tokens: ?u64 = null,
+    cumulative_prompt_tokens: u64 = 0,
+    cumulative_completion_tokens: u64 = 0,
+    cumulative_total_tokens: u64 = 0,
+    usage_turn_count: usize = 0,
     last_error_code: ?[]u8 = null,
 
     pub fn deinit(self: *SessionSnapshot, allocator: std.mem.Allocator) void {
@@ -87,6 +92,32 @@ pub const SessionSnapshot = struct {
         if (self.latest_tool_id) |value| allocator.free(value);
         if (self.latest_tool_result_json) |value| allocator.free(value);
         if (self.last_error_code) |value| allocator.free(value);
+    }
+};
+
+pub const RecentTurnSnapshot = struct {
+    seq: u64,
+    stream_seq: ?u64 = null,
+    execution_id: ?[]u8 = null,
+    ts_unix_ms: i64,
+    provider_id: ?[]u8 = null,
+    model: ?[]u8 = null,
+    tool_id: ?[]u8 = null,
+    tool_rounds: usize = 0,
+    max_tool_rounds: usize = 0,
+    memory_entries_used: usize = 0,
+    provider_latency_ms: ?u64 = null,
+    prompt_tokens: ?u64 = null,
+    completion_tokens: ?u64 = null,
+    total_tokens: ?u64 = null,
+    error_code: ?[]u8 = null,
+
+    pub fn deinit(self: *RecentTurnSnapshot, allocator: std.mem.Allocator) void {
+        if (self.execution_id) |value| allocator.free(value);
+        if (self.provider_id) |value| allocator.free(value);
+        if (self.model) |value| allocator.free(value);
+        if (self.tool_id) |value| allocator.free(value);
+        if (self.error_code) |value| allocator.free(value);
     }
 };
 
@@ -185,6 +216,7 @@ pub const SessionStore = struct {
         var latest_tool_id: ?[]u8 = null;
         var latest_tool_result_json: ?[]u8 = null;
         var latest_tool_rounds: usize = 0;
+        var latest_max_tool_rounds: usize = 0;
         var latest_provider_latency_ms: ?u64 = null;
         var latest_memory_entries_used: usize = 0;
         var latest_provider_round_budget: usize = 0;
@@ -198,6 +230,10 @@ pub const SessionStore = struct {
         var latest_prompt_tokens: ?u64 = null;
         var latest_completion_tokens: ?u64 = null;
         var latest_total_tokens: ?u64 = null;
+        var cumulative_prompt_tokens: u64 = 0;
+        var cumulative_completion_tokens: u64 = 0;
+        var cumulative_total_tokens: u64 = 0;
+        var usage_turn_count: usize = 0;
         var last_error_code: ?[]u8 = null;
         var tool_trace_count: usize = 0;
         var turn_count: usize = 0;
@@ -217,6 +253,17 @@ pub const SessionStore = struct {
             if (std.mem.eql(u8, event.kind, "assistant.response")) assistant_response_count += 1;
             if (std.mem.eql(u8, event.kind, "error") or std.mem.eql(u8, event.kind, "session.turn.failed")) error_event_count += 1;
             if (std.mem.eql(u8, event.kind, "stream.output")) stream_output_count += 1;
+            if (std.mem.eql(u8, event.kind, "session.turn.completed")) {
+                if (parseJsonUnsignedField(event.payload_json, "promptTokens")) |value| cumulative_prompt_tokens += value;
+                if (parseJsonUnsignedField(event.payload_json, "completionTokens")) |value| cumulative_completion_tokens += value;
+                if (parseJsonUnsignedField(event.payload_json, "totalTokens")) |value| cumulative_total_tokens += value;
+                if (parseJsonUnsignedField(event.payload_json, "promptTokens") != null or
+                    parseJsonUnsignedField(event.payload_json, "completionTokens") != null or
+                    parseJsonUnsignedField(event.payload_json, "totalTokens") != null)
+                {
+                    usage_turn_count += 1;
+                }
+            }
             if (event.stream_seq) |stream_seq| {
                 replayable_event_count += 1;
                 if (first_stream_seq == 0) first_stream_seq = stream_seq;
@@ -252,6 +299,7 @@ pub const SessionStore = struct {
                 if (latest_tool_id == null) latest_tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
                 if (latest_provider_latency_ms == null) latest_provider_latency_ms = parseJsonUnsignedField(event.payload_json, "providerLatencyMs");
                 if (latest_tool_rounds == 0) latest_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
+                if (latest_max_tool_rounds == 0) latest_max_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "maxToolRounds") orelse 0);
                 if (latest_memory_entries_used == 0) latest_memory_entries_used = @intCast(parseJsonUnsignedField(event.payload_json, "memoryEntriesUsed") orelse 0);
                 if (latest_provider_round_budget == 0) latest_provider_round_budget = @intCast(parseJsonUnsignedField(event.payload_json, "providerRoundBudget") orelse 0);
                 if (latest_provider_rounds_remaining == 0) latest_provider_rounds_remaining = @intCast(parseJsonUnsignedField(event.payload_json, "providerRoundsRemaining") orelse 0);
@@ -293,6 +341,7 @@ pub const SessionStore = struct {
             .latest_tool_id = latest_tool_id,
             .latest_tool_result_json = latest_tool_result_json,
             .latest_tool_rounds = latest_tool_rounds,
+            .latest_max_tool_rounds = latest_max_tool_rounds,
             .latest_provider_latency_ms = latest_provider_latency_ms,
             .latest_memory_entries_used = latest_memory_entries_used,
             .latest_provider_round_budget = latest_provider_round_budget,
@@ -306,8 +355,67 @@ pub const SessionStore = struct {
             .latest_prompt_tokens = latest_prompt_tokens,
             .latest_completion_tokens = latest_completion_tokens,
             .latest_total_tokens = latest_total_tokens,
+            .cumulative_prompt_tokens = cumulative_prompt_tokens,
+            .cumulative_completion_tokens = cumulative_completion_tokens,
+            .cumulative_total_tokens = cumulative_total_tokens,
+            .usage_turn_count = usage_turn_count,
             .last_error_code = last_error_code,
         };
+    }
+
+    pub fn recentTurns(self: *const Self, allocator: std.mem.Allocator, session_id: []const u8, limit: usize) anyerror![]RecentTurnSnapshot {
+        const session = self.find(session_id) orelse return allocator.alloc(RecentTurnSnapshot, 0);
+        if (limit == 0) return allocator.alloc(RecentTurnSnapshot, 0);
+
+        var completed_turn_count: usize = 0;
+        for (session.events.items) |event| {
+            if (std.mem.eql(u8, event.kind, "session.turn.completed")) completed_turn_count += 1;
+        }
+
+        const actual_count = @min(limit, completed_turn_count);
+        const result = try allocator.alloc(RecentTurnSnapshot, actual_count);
+        var initialized_from = actual_count;
+        errdefer {
+            for (result[initialized_from..actual_count]) |*turn| turn.deinit(allocator);
+            allocator.free(result);
+        }
+
+        var remaining = actual_count;
+        var index = session.events.items.len;
+        while (index > 0 and remaining > 0) {
+            index -= 1;
+            const event = session.events.items[index];
+            if (!std.mem.eql(u8, event.kind, "session.turn.completed")) continue;
+
+            remaining -= 1;
+            initialized_from = remaining;
+            result[remaining] = try buildRecentTurnSnapshot(allocator, event);
+        }
+
+        return result;
+    }
+
+    fn buildRecentTurnSnapshot(allocator: std.mem.Allocator, event: SessionEvent) anyerror!RecentTurnSnapshot {
+        var turn_snapshot = RecentTurnSnapshot{
+            .seq = event.seq,
+            .stream_seq = event.stream_seq,
+            .execution_id = if (event.execution_id) |value| try allocator.dupe(u8, value) else null,
+            .ts_unix_ms = event.ts_unix_ms,
+        };
+        errdefer turn_snapshot.deinit(allocator);
+
+        turn_snapshot.provider_id = try cloneJsonStringField(allocator, event.payload_json, "providerId");
+        turn_snapshot.model = try cloneJsonStringField(allocator, event.payload_json, "model");
+        turn_snapshot.tool_id = try cloneJsonStringField(allocator, event.payload_json, "toolId");
+        turn_snapshot.tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
+        turn_snapshot.max_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "maxToolRounds") orelse 0);
+        turn_snapshot.memory_entries_used = @intCast(parseJsonUnsignedField(event.payload_json, "memoryEntriesUsed") orelse 0);
+        turn_snapshot.provider_latency_ms = parseJsonUnsignedField(event.payload_json, "providerLatencyMs");
+        turn_snapshot.prompt_tokens = parseJsonUnsignedField(event.payload_json, "promptTokens");
+        turn_snapshot.completion_tokens = parseJsonUnsignedField(event.payload_json, "completionTokens");
+        turn_snapshot.total_tokens = parseJsonUnsignedField(event.payload_json, "totalTokens");
+        turn_snapshot.error_code = try cloneJsonStringField(allocator, event.payload_json, "errorCode");
+        return turn_snapshot;
     }
 
     fn cloneJsonStringField(allocator: std.mem.Allocator, payload_json: []const u8, key: []const u8) anyerror!?[]u8 {
@@ -384,7 +492,7 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try store.appendEvent("sess_turn", "tool.call.started", "{\"toolId\":\"echo\"}");
     try store.appendEvent("sess_turn", "tool.result", "{\"ok\":true}");
     try store.appendEvent("sess_turn", "assistant.response", "hello back");
-    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"providerRoundBudget\":4,\"providerRoundsRemaining\":2,\"providerAttemptBudget\":8,\"providerAttemptsRemaining\":6,\"toolCallBudget\":3,\"toolCallsRemaining\":1,\"providerRetryBudget\":1,\"totalDeadlineMs\":250,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3,\"promptTokens\":12,\"completionTokens\":8,\"totalTokens\":20}");
+    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"maxToolRounds\":4,\"providerRoundBudget\":4,\"providerRoundsRemaining\":2,\"providerAttemptBudget\":8,\"providerAttemptsRemaining\":6,\"toolCallBudget\":3,\"toolCallsRemaining\":1,\"providerRetryBudget\":1,\"totalDeadlineMs\":250,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3,\"promptTokens\":12,\"completionTokens\":8,\"totalTokens\":20}");
 
     var snapshot = try store.snapshotMeta(std.testing.allocator, "sess_turn");
     defer snapshot.deinit(std.testing.allocator);
@@ -397,6 +505,7 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try std.testing.expectEqualStrings("gpt-4o-mini", snapshot.latest_model.?);
     try std.testing.expectEqualStrings("echo", snapshot.latest_tool_id.?);
     try std.testing.expectEqual(@as(usize, 1), snapshot.latest_tool_rounds);
+    try std.testing.expectEqual(@as(usize, 4), snapshot.latest_max_tool_rounds);
     try std.testing.expectEqual(@as(u64, 42), snapshot.latest_provider_latency_ms.?);
     try std.testing.expectEqual(@as(usize, 3), snapshot.latest_memory_entries_used);
     try std.testing.expectEqual(@as(usize, 4), snapshot.latest_provider_round_budget);
@@ -410,6 +519,29 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try std.testing.expectEqual(@as(u64, 12), snapshot.latest_prompt_tokens.?);
     try std.testing.expectEqual(@as(u64, 8), snapshot.latest_completion_tokens.?);
     try std.testing.expectEqual(@as(u64, 20), snapshot.latest_total_tokens.?);
+    try std.testing.expectEqual(@as(u64, 12), snapshot.cumulative_prompt_tokens);
+    try std.testing.expectEqual(@as(u64, 8), snapshot.cumulative_completion_tokens);
+    try std.testing.expectEqual(@as(u64, 20), snapshot.cumulative_total_tokens);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.usage_turn_count);
+}
+
+test "session store accumulates usage across completed turns" {
+    var store = SessionStore.init(std.testing.allocator);
+    defer store.deinit();
+    try store.appendEvent("sess_usage", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"promptTokens\":12,\"completionTokens\":8,\"totalTokens\":20}");
+    try store.appendEvent("sess_usage", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"promptTokens\":5,\"completionTokens\":7,\"totalTokens\":12}");
+
+    var snapshot = try store.snapshotMeta(std.testing.allocator, "sess_usage");
+    defer snapshot.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), snapshot.turn_count);
+    try std.testing.expectEqual(@as(usize, 2), snapshot.usage_turn_count);
+    try std.testing.expectEqual(@as(u64, 17), snapshot.cumulative_prompt_tokens);
+    try std.testing.expectEqual(@as(u64, 15), snapshot.cumulative_completion_tokens);
+    try std.testing.expectEqual(@as(u64, 32), snapshot.cumulative_total_tokens);
+    try std.testing.expectEqual(@as(u64, 5), snapshot.latest_prompt_tokens.?);
+    try std.testing.expectEqual(@as(u64, 7), snapshot.latest_completion_tokens.?);
+    try std.testing.expectEqual(@as(u64, 12), snapshot.latest_total_tokens.?);
 }
 
 test "session store can replay after seq" {
@@ -427,4 +559,26 @@ test "session store can replay after seq" {
     try std.testing.expectEqual(@as(usize, 2), replay.len);
     try std.testing.expectEqual(@as(?u64, 6), replay[0].stream_seq);
     try std.testing.expectEqualStrings("exec_1", replay[0].execution_id.?);
+}
+
+test "session store returns recent completed turns in chronological order" {
+    var store = SessionStore.init(std.testing.allocator);
+    defer store.deinit();
+    try store.appendEventWithMeta("sess_recent_turns", "exec_1", 1, "session.turn.completed", "{\"providerId\":\"mock_a\",\"model\":\"model-a\",\"promptTokens\":10,\"completionTokens\":5,\"totalTokens\":15}");
+    try store.appendEventWithMeta("sess_recent_turns", "exec_2", 2, "session.turn.completed", "{\"providerId\":\"mock_b\",\"model\":\"model-b\",\"promptTokens\":20,\"completionTokens\":7,\"totalTokens\":27}");
+    try store.appendEventWithMeta("sess_recent_turns", "exec_3", 3, "session.turn.completed", "{\"providerId\":\"mock_c\",\"model\":\"model-c\",\"promptTokens\":30,\"completionTokens\":9,\"totalTokens\":39}");
+
+    const turns = try store.recentTurns(std.testing.allocator, "sess_recent_turns", 2);
+    defer {
+        for (turns) |*turn| turn.deinit(std.testing.allocator);
+        std.testing.allocator.free(turns);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), turns.len);
+    try std.testing.expectEqual(@as(u64, 2), turns[0].seq);
+    try std.testing.expectEqual(@as(u64, 3), turns[1].seq);
+    try std.testing.expectEqualStrings("exec_2", turns[0].execution_id.?);
+    try std.testing.expectEqualStrings("exec_3", turns[1].execution_id.?);
+    try std.testing.expectEqual(@as(u64, 20), turns[0].prompt_tokens.?);
+    try std.testing.expectEqual(@as(u64, 39), turns[1].total_tokens.?);
 }
