@@ -25,25 +25,8 @@ pub const GatewayResponse = struct {
     content_type: []const u8 = "application/json",
     body: Body,
 
-    pub const StreamingBody = struct {
-        ptr: *anyopaque,
-        write: *const fn (ptr: *anyopaque, sink: stream_sink.ByteSink) anyerror!void,
-        deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
-    };
-
-    pub const WebSocketBody = struct {
-        pub const ClientEventHandler = struct {
-            ptr: *anyopaque,
-            on_text: *const fn (ptr: *anyopaque, text: []const u8) anyerror!void,
-            on_close: *const fn (ptr: *anyopaque, close_code: ?u16, close_reason: ?[]const u8) void,
-        };
-
-        accept_key: [28]u8,
-        ptr: *anyopaque,
-        write: *const fn (ptr: *anyopaque, sink: stream_sink.ByteSink) anyerror!void,
-        client_events: ?ClientEventHandler = null,
-        deinit: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
-    };
+    pub const StreamingBody = framework.StreamingBody;
+    pub const WebSocketBody = framework.WebSocketBody;
 
     pub const Body = union(enum) {
         buffered: []u8,

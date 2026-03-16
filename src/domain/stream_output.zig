@@ -83,8 +83,6 @@ pub const StreamOutput = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        try self.session_store.appendEvent(session_id, kind, payload_json);
-
         const envelope = if (execution_id) |actual_execution_id|
             try std.fmt.allocPrint(
                 self.allocator,
@@ -103,6 +101,7 @@ pub const StreamOutput = struct {
         if (self.event_bus) |event_bus| {
             seq = try event_bus.publish("stream.output", envelope);
         }
+        try self.session_store.appendEventWithMeta(session_id, execution_id, if (seq > 0) seq else null, kind, payload_json);
         for (self.projectors.items) |registration| {
             try registration.projector.on_event(
                 registration.projector.ptr,

@@ -1353,7 +1353,7 @@ fn writeControlledSseEvent(
 }
 
 fn writeControlledJsonLineEvent(allocator: std.mem.Allocator, sink: ByteSink, state: *ProjectionState, event_name: []const u8, seq: u64, data_json: []const u8) anyerror!void {
-    const rendered = try renderJsonEvent(allocator, event_name, seq, data_json);
+    const rendered = try framework.renderJsonEvent(allocator, event_name, seq, data_json);
     defer allocator.free(rendered);
     try state.prepareWrite(rendered.len + 1);
     sink.writeAll(rendered) catch |err| return state.mapSinkError(err);
@@ -1363,7 +1363,7 @@ fn writeControlledJsonLineEvent(allocator: std.mem.Allocator, sink: ByteSink, st
 }
 
 fn writeControlledWebSocketEvent(allocator: std.mem.Allocator, sink: ByteSink, state: *ProjectionState, event_name: []const u8, seq: u64, data_json: []const u8) anyerror!void {
-    const rendered = try renderJsonEvent(allocator, event_name, seq, data_json);
+    const rendered = try framework.renderJsonEvent(allocator, event_name, seq, data_json);
     defer allocator.free(rendered);
     const byte_count = webSocketFrameByteCount(rendered.len);
     try state.prepareWrite(byte_count);
@@ -1379,7 +1379,7 @@ fn writeRawSseEvent(allocator: std.mem.Allocator, sink: ByteSink, event_name: []
 }
 
 fn writeRawJsonLineEvent(allocator: std.mem.Allocator, sink: ByteSink, event_name: []const u8, seq: u64, data_json: []const u8) anyerror!void {
-    const rendered = try renderJsonEvent(allocator, event_name, seq, data_json);
+    const rendered = try framework.renderJsonEvent(allocator, event_name, seq, data_json);
     defer allocator.free(rendered);
     try sink.writeAll(rendered);
     try sink.writeAll("\n");
@@ -1387,7 +1387,7 @@ fn writeRawJsonLineEvent(allocator: std.mem.Allocator, sink: ByteSink, event_nam
 }
 
 fn writeRawWebSocketEvent(allocator: std.mem.Allocator, sink: ByteSink, event_name: []const u8, seq: u64, data_json: []const u8) anyerror!void {
-    const rendered = try renderJsonEvent(allocator, event_name, seq, data_json);
+    const rendered = try framework.renderJsonEvent(allocator, event_name, seq, data_json);
     defer allocator.free(rendered);
     try stream_websocket.writeTextFrame(sink, rendered);
 }
@@ -1694,18 +1694,6 @@ fn renderSseEvent(
     try writer.writeAll("data: ");
     try writer.writeAll(data_json);
     try writer.writeAll("\n\n");
-    return allocator.dupe(u8, buf.items);
-}
-
-fn renderJsonEvent(allocator: std.mem.Allocator, event_name: []const u8, seq: u64, data_json: []const u8) anyerror![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    defer buf.deinit(allocator);
-    const writer = buf.writer(allocator);
-    try writer.writeByte('{');
-    try appendJsonStringField(writer, "event", event_name, true);
-    if (seq > 0) try appendJsonUnsignedField(writer, "seq", seq, false);
-    try appendRawJsonField(writer, "data", data_json, false);
-    try writer.writeByte('}');
     return allocator.dupe(u8, buf.items);
 }
 
