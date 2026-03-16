@@ -13,7 +13,15 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const id = ctx.param("id").?.value.string;
     const label = ctx.param("label").?.value.string;
-    try services.hardware_registry.register(id, label);
+    services.hardware_registry.register(id, label) catch |err| {
+        const health_message = switch (err) {
+            error.HardwareUnsupportedKind => "unsupported_kind",
+            error.HardwareNodeOffline => "device_offline",
+            error.DuplicateHardwareNode => "duplicate_node",
+            else => "registration_failed",
+        };
+        return std.fmt.allocPrint(ctx.allocator, "{{\"registered\":false,\"id\":\"{s}\",\"status\":\"failed\",\"errorCode\":\"{s}\",\"healthState\":\"broken\",\"healthMessage\":\"{s}\"}}", .{ id, @errorName(err), health_message });
+    };
     const node = services.hardware_registry.find(id).?;
-    return std.fmt.allocPrint(ctx.allocator, "{{\"registered\":true,\"id\":\"{s}\",\"registeredAtMs\":{d}}}", .{ id, node.registered_at_ms });
+    return std.fmt.allocPrint(ctx.allocator, "{{\"registered\":true,\"id\":\"{s}\",\"kind\":\"{s}\",\"registeredAtMs\":{d},\"healthState\":\"{s}\",\"healthMessage\":\"{s}\",\"probeCount\":{d},\"lastCheckedMs\":{?}}}", .{ id, node.kind, node.registered_at_ms, node.health_state.asText(), node.health_message, node.probe_count, node.last_checked_ms });
 }

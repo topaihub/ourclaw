@@ -15,6 +15,7 @@ const tunnel_runtime = @import("../domain/tunnel_runtime.zig");
 const mcp_runtime = @import("../domain/mcp_runtime.zig");
 const peripherals = @import("../domain/peripherals.zig");
 const hardware = @import("../domain/hardware.zig");
+const voice_runtime = @import("../domain/voice_runtime.zig");
 const session_state = @import("../domain/session_state.zig");
 const stream_output = @import("../domain/stream_output.zig");
 const tool_orchestrator = @import("../domain/tool_orchestrator.zig");
@@ -49,6 +50,7 @@ pub const AppContext = struct {
     mcp_runtime: *mcp_runtime.McpRuntime,
     peripheral_registry: *peripherals.PeripheralRegistry,
     hardware_registry: *hardware.HardwareRegistry,
+    voice_runtime: *voice_runtime.VoiceRuntime,
     agent_runtime: *agent_runtime.AgentRuntime,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
@@ -112,12 +114,12 @@ pub const AppContext = struct {
 
         const tunnel_runtime_ref = try allocator.create(tunnel_runtime.TunnelRuntime);
         errdefer allocator.destroy(tunnel_runtime_ref);
-        tunnel_runtime_ref.* = tunnel_runtime.TunnelRuntime.init();
+        tunnel_runtime_ref.* = tunnel_runtime.TunnelRuntime.init(allocator);
 
         const mcp_runtime_ref = try allocator.create(mcp_runtime.McpRuntime);
         errdefer allocator.destroy(mcp_runtime_ref);
         mcp_runtime_ref.* = mcp_runtime.McpRuntime.init(allocator);
-        try mcp_runtime_ref.register("local", "stdio");
+        try mcp_runtime_ref.register("local", "stdio", null);
 
         const peripheral_registry = try allocator.create(peripherals.PeripheralRegistry);
         errdefer allocator.destroy(peripheral_registry);
@@ -129,9 +131,14 @@ pub const AppContext = struct {
         hardware_registry.* = hardware.HardwareRegistry.init(allocator);
         try hardware_registry.register("gpu0", "Primary GPU");
 
+        const voice_runtime_ref = try allocator.create(voice_runtime.VoiceRuntime);
+        errdefer allocator.destroy(voice_runtime_ref);
+        voice_runtime_ref.* = voice_runtime.VoiceRuntime.init(allocator);
+
         const memory_runtime_ref = try allocator.create(memory_runtime.MemoryRuntime);
         errdefer allocator.destroy(memory_runtime_ref);
         memory_runtime_ref.* = memory_runtime.MemoryRuntime.init(allocator);
+        memory_runtime_ref.bindProviderRegistry(provider_registry);
 
         var framework_context = try framework.AppContext.init(allocator, bootstrap.framework);
         errdefer framework_context.deinit();
@@ -189,6 +196,7 @@ pub const AppContext = struct {
             framework_context.logger,
             framework_context.config_side_effects,
             provider_registry,
+            memory_runtime_ref,
             heartbeat_ref,
         );
 
@@ -208,6 +216,7 @@ pub const AppContext = struct {
             .mcp_runtime = mcp_runtime_ref,
             .peripheral_registry = peripheral_registry,
             .hardware_registry = hardware_registry,
+            .voice_runtime = voice_runtime_ref,
             .agent_runtime = agent_runtime_ref,
             .session_store = session_store,
             .stream_output = output,
@@ -239,6 +248,7 @@ pub const AppContext = struct {
             .mcp_runtime = self.mcp_runtime,
             .peripheral_registry = self.peripheral_registry,
             .hardware_registry = self.hardware_registry,
+            .voice_runtime = self.voice_runtime,
             .session_store = self.session_store,
             .stream_output = self.stream_output,
             .tool_orchestrator = self.tool_orchestrator,
@@ -248,6 +258,7 @@ pub const AppContext = struct {
 
         try commands.registerBuiltins(self.framework_context.command_registry, &self.services);
         try self.bootstrapDefaults();
+        try self.syncMemoryEmbeddingConfigFromStore();
         try self.secret_store.put("openai:api_key", "demo-secret");
         return self;
     }
@@ -273,8 +284,11 @@ pub const AppContext = struct {
         self.allocator.destroy(self.hardware_registry);
         self.peripheral_registry.deinit();
         self.allocator.destroy(self.peripheral_registry);
+        self.voice_runtime.deinit();
+        self.allocator.destroy(self.voice_runtime);
         self.mcp_runtime.deinit();
         self.allocator.destroy(self.mcp_runtime);
+        self.tunnel_runtime.deinit();
         self.allocator.destroy(self.tunnel_runtime);
         self.allocator.destroy(self.skillforge);
         self.skill_registry.deinit();
@@ -334,6 +348,22 @@ pub const AppContext = struct {
 
     fn bootstrapDefaults(self: *Self) anyerror!void {
         _ = try config_runtime.bootstrapDefaults(self.allocator, self.framework_context.config_store.asConfigStore());
+    }
+
+    fn syncMemoryEmbeddingConfigFromStore(self: *Self) anyerror!void {
+        const provider = self.framework_context.config_store.get("memory.embedding_provider");
+        if (provider) |value| {
+            if (value.* == .string) {
+                try self.memory_runtime.setEmbeddingProvider(value.string);
+            }
+        }
+
+        const model = self.framework_context.config_store.get("memory.embedding_model");
+        if (model) |value| {
+            if (value.* == .string) {
+                try self.memory_runtime.setEmbeddingModel(value.string);
+            }
+        }
     }
 };
 

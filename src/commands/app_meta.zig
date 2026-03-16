@@ -242,13 +242,17 @@ test "app meta command definition is stable" {
     var skill_registry = @import("../domain/skills.zig").SkillRegistry.init(std.testing.allocator);
     defer skill_registry.deinit();
     var skillforge = @import("../domain/skillforge.zig").SkillForge.init(&skill_registry);
-    var tunnel_runtime = @import("../domain/tunnel_runtime.zig").TunnelRuntime.init();
+    var tunnel_runtime = @import("../domain/tunnel_runtime.zig").TunnelRuntime.init(std.testing.allocator);
+    defer tunnel_runtime.deinit();
     var mcp_runtime = @import("../domain/mcp_runtime.zig").McpRuntime.init(std.testing.allocator);
     defer mcp_runtime.deinit();
+    try mcp_runtime.register("local", "stdio", null);
     var peripheral_registry = @import("../domain/peripherals.zig").PeripheralRegistry.init(std.testing.allocator);
     defer peripheral_registry.deinit();
     var hardware_registry = @import("../domain/hardware.zig").HardwareRegistry.init(std.testing.allocator);
     defer hardware_registry.deinit();
+    var voice_runtime = @import("../domain/voice_runtime.zig").VoiceRuntime.init(std.testing.allocator);
+    defer voice_runtime.deinit();
     var memory_runtime = @import("../domain/memory_runtime.zig").MemoryRuntime.init(std.testing.allocator);
     defer memory_runtime.deinit();
     var session_store = @import("../domain/session_state.zig").SessionStore.init(std.testing.allocator);
@@ -271,6 +275,7 @@ test "app meta command definition is stable" {
         .mcp_runtime = &mcp_runtime,
         .peripheral_registry = &peripheral_registry,
         .hardware_registry = &hardware_registry,
+        .voice_runtime = &voice_runtime,
         .session_store = &session_store,
         .stream_output = &output,
         .tool_orchestrator = &orchestrator,

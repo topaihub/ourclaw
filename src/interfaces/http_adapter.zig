@@ -299,6 +299,9 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/hardware/list")) return "hardware.list";
     if (std.mem.eql(u8, route, "/v1/hardware/register")) return "hardware.register";
     if (std.mem.eql(u8, route, "/v1/peripheral/register")) return "peripheral.register";
+    if (std.mem.eql(u8, route, "/v1/voice/status")) return "voice.status";
+    if (std.mem.eql(u8, route, "/v1/voice/attach")) return "voice.attach";
+    if (std.mem.eql(u8, route, "/v1/voice/detach")) return "voice.detach";
     return null;
 }
 

@@ -12,6 +12,7 @@ const tunnel_runtime = @import("tunnel_runtime.zig");
 const mcp_runtime = @import("mcp_runtime.zig");
 const peripherals = @import("peripherals.zig");
 const hardware = @import("hardware.zig");
+const voice_runtime = @import("voice_runtime.zig");
 const stream_output = @import("stream_output.zig");
 const tool_orchestrator = @import("tool_orchestrator.zig");
 
@@ -31,6 +32,7 @@ pub const CommandServices = struct {
     mcp_runtime: *mcp_runtime.McpRuntime,
     peripheral_registry: *peripherals.PeripheralRegistry,
     hardware_registry: *hardware.HardwareRegistry,
+    voice_runtime: *voice_runtime.VoiceRuntime,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
     tool_orchestrator: *tool_orchestrator.ToolOrchestrator,

@@ -330,7 +330,7 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
-    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list")) {
+    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
             .request = .{ .request_id = "cli_req_simple_query", .method = args[0], .params = params, .source = .cli, .authority = .admin },
@@ -533,6 +533,25 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         return .{
             .request = .{ .request_id = "cli_req_registry_register", .method = args[0], .params = params, .source = .cli, .authority = .admin },
             .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "voice.attach")) {
+        if (args.len < 2) return error.MissingCommand;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "peripheral_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_voice_attach", .method = "voice.attach", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "voice.detach")) {
+        return .{
+            .request = .{ .request_id = "cli_req_voice_detach", .method = "voice.detach", .params = &.{}, .source = .cli, .authority = .admin },
+            .params = &.{},
             .allocator = allocator,
         };
     }
