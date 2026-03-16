@@ -52,7 +52,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         .allow_provider_tools = if (ctx.param("allow_provider_tools")) |field| field.value.boolean else true,
         .prompt_profile = try parsePromptProfile(ctx),
         .response_mode = try parseResponseMode(ctx),
-        .max_tool_rounds = if (ctx.param("max_tool_rounds")) |field| @intCast(field.value.integer) else 4,
+        .max_tool_rounds = if (ctx.param("max_tool_rounds")) |field| @intCast(field.value.integer) else app.effective_runtime_max_tool_rounds,
         .tool_call_budget = if (ctx.param("tool_call_budget")) |field| @intCast(field.value.integer) else 4,
         .provider_round_budget = if (ctx.param("provider_round_budget")) |field| @intCast(field.value.integer) else 4,
         .provider_attempt_budget = if (ctx.param("provider_attempt_budget")) |field| @intCast(field.value.integer) else 8,

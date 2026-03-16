@@ -242,6 +242,68 @@ test "config set provider field triggers real provider refresh state" {
     try std.testing.expectEqualStrings("providers.openai.model", app.provider_registry.last_refresh_reason.?);
 }
 
+test "config notify runtime updates pairing and max tool rounds" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+    const pairing_params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = "gateway.require_pairing" } },
+        .{ .key = "value", .value = .{ .string = "false" } },
+        .{ .key = "confirm_risk", .value = .{ .boolean = true } },
+    };
+    const set_pairing = try dispatcher.dispatch(.{ .request_id = "req_config_set_pairing", .method = "config.set", .params = pairing_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (set_pairing.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(set_pairing.ok);
+    try std.testing.expect(!app.effective_gateway_require_pairing);
+
+    const max_tool_rounds_params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = "runtime.max_tool_rounds" } },
+        .{ .key = "value", .value = .{ .string = "2" } },
+    };
+    const set_max_tool_rounds = try dispatcher.dispatch(.{ .request_id = "req_config_set_max_tool_rounds", .method = "config.set", .params = max_tool_rounds_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (set_max_tool_rounds.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(set_max_tool_rounds.ok);
+    try std.testing.expectEqual(@as(usize, 2), app.effective_runtime_max_tool_rounds);
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_runtime_max_tool_rounds",
+        .label = "Mock OpenAI Runtime Max Tool Rounds",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    const run_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_runtime_max_tool_rounds" } },
+        .{ .key = "prompt", .value = .{ .string = "hello" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_runtime_max_tool_rounds" } },
+    };
+    const run = try dispatcher.dispatch(.{ .request_id = "req_agent_run_runtime_max_tool_rounds", .method = "agent.run", .params = run_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (run.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(run.ok);
+
+    const get_params = [_]framework.ValidationField{.{ .key = "session_id", .value = .{ .string = "sess_runtime_max_tool_rounds" } }};
+    const get = try dispatcher.dispatch(.{ .request_id = "req_session_get_runtime_max_tool_rounds", .method = "session.get", .params = get_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer switch (get.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(get.ok);
+    try std.testing.expect(std.mem.indexOf(u8, get.result.?.success_json, "\"maxToolRounds\":2") != null);
+}
+
 test "config migrate preview summarizes legacy alias rewrites" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
