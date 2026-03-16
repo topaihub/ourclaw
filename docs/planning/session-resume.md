@@ -32,6 +32,17 @@
 
 ## 最近结论
 
+- **B3 已完成（2026-03-16）**：
+  - summary-first prompt compression 已完成
+  - `max_tool_rounds`、`allow_provider_tools`、`prompt_profile`、`response_mode` 已从 command/runtime 进入 `session.get`
+  - `prompt_assembly` 已新增 `Execution Strategy JSON`，让 provider prompt 显式携带 execution strategy
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（175/175）
+
+- **B3 第四子步已完成（2026-03-16）**：
+  - `prompt_assembly` 已新增 `Execution Strategy JSON` system message
+  - `agent_runtime` 已把 budgets / `max_tool_rounds` / `allow_provider_tools` / `prompt_profile` / `response_mode` 传入 prompt 组装
+  - `openai_compatible` probe 已要求 execution strategy message 存在，既有 smoke 因而自动覆盖这条 prompt surface
+
 - **B3 第三子步已完成（2026-03-16）**：
   - `agent.run` / `agent.stream` 已显式接收 `allow_provider_tools / prompt_profile / response_mode`
   - `session.turn.completed` 已写出 `allowProviderTools / promptProfile / responseMode`

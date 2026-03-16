@@ -59,7 +59,7 @@
     - 已完成第三子步：canonical snapshot schema 已稳定保留 `tsUnixMs / embeddingProvider / embeddingModel` 等 richer metadata；`memory_runtime.zig` domain tests 与 `tests/smoke.zig` roundtrip 已覆盖 richer metadata 保真
     - 完成判断：summary / compact / migrate / snapshot export/import / retrieval richer metadata 已形成稳定闭环
 
-- [ ] **B3. 深化 agent runtime 策略面**
+- [x] **B3. 深化 agent runtime 策略面**
   - 主线落点：`ourclaw/src/domain/agent_runtime.zig`、`prompt_assembly.zig`
   - 参考：`nullclaw` agent runtime、`openclaw` 路由与控制语义
   - 验证：agent domain tests + smoke
@@ -70,7 +70,8 @@
     - `prompt_assembly.zig`、`agent_runtime.zig` 与 `tests/smoke.zig` 已补 summary-first 回归；`ourclaw` `zig build test --summary all -j1` 通过（172/172）
     - 已完成第二子步：`max_tool_rounds` 已从 `agent.run` / `agent.stream` command surface 透传到 runtime，并写入 `session.turn.completed.maxToolRounds`；`session.get` 的 `latestTurn` / `recentTurns` 已对外暴露该字段；`ourclaw` `zig build test --summary all -j1` 通过（175/175）
     - 已完成第三子步：`allow_provider_tools / prompt_profile / response_mode` 已从 `agent.run` / `agent.stream` command surface 进入 runtime，并写入 `session.turn.completed`；`session.get` 的顶层字段、`latestTurn` 与 `recentTurns` 已对外暴露这组策略面；`ourclaw` `zig build test --summary all -j1` 通过（175/175）
-    - 当前下一步：继续细化 B3 后续策略，优先把 execution strategy 从 runtime/session side-channel 提升成 prompt 内显式上下文
+    - 已完成第四子步：`prompt_assembly` 已新增 `Execution Strategy JSON` system message；runtime 的 budgets / `max_tool_rounds` / `allow_provider_tools` / `prompt_profile` / `response_mode` 现已显式进入 provider prompt；`openai_compatible` probe 与 smoke 已把该链路纳入回归
+    - 完成判断：当前 provider/tool/memory/session 策略与压缩边界已具备 command surface、session surface、prompt surface 与 smoke/domain 回归，B3 可视为收口
 
 ### Wave C — gateway / control-plane 对齐 openclaw
 
