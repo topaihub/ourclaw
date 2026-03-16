@@ -1045,10 +1045,11 @@ fn drainExecutionAsWebSocket(
         if (signals.pause_requested) |pause_requested| {
             if (pause_requested.swap(false, .acq_rel)) {
                 paused = true;
+                const acked_seq = currentAckedSeq(signals, cursor);
                 const pause_json = try buildControlJson(
                     allocator,
-                    if (signals.acked_seq) |acked_seq| acked_seq.load(.acquire) else cursor,
-                    if (signals.acked_seq) |acked_seq| acked_seq.load(.acquire) else cursor,
+                    acked_seq,
+                    acked_seq,
                     "client_pause",
                     1000,
                 );
@@ -1059,7 +1060,7 @@ fn drainExecutionAsWebSocket(
 
         if (signals.resume_requested) |resume_requested| {
             if (resume_requested.swap(false, .acq_rel)) {
-                const acked_seq = if (signals.acked_seq) |acked| acked.load(.acquire) else cursor;
+                const acked_seq = currentAckedSeq(signals, cursor);
                 const resume_from_seq = if (signals.resume_from_seq) |resume_from| resume_from.load(.acquire) else acked_seq;
                 paused = false;
                 cursor = @min(cursor, @min(acked_seq, resume_from_seq));
@@ -1110,7 +1111,7 @@ fn drainExecutionAsWebSocket(
                 cursor = event.seq;
                 if (std.mem.eql(u8, event.kind, "done")) {
                     const terminal = execution.terminalSnapshot();
-                    try sendWebSocketCloseControl(allocator, sink, terminal.close_code, terminal.close_reason orelse "completed", cursor);
+                    try sendWebSocketCloseControl(allocator, sink, terminal.close_code, terminal.close_reason orelse "completed", currentAckedSeq(signals, cursor));
                     try stream_websocket.writeCloseFrameWithReason(sink, terminal.close_code, terminal.close_reason orelse "completed");
                     return;
                 }
@@ -1132,6 +1133,14 @@ fn drainExecutionAsWebSocket(
 
         std.Thread.sleep(EXECUTION_POLL_INTERVAL_MS * std.time.ns_per_ms);
     }
+}
+
+fn currentAckedSeq(signals: WebSocketControlSignals, cursor: u64) u64 {
+    if (signals.acked_seq) |acked| {
+        const value = acked.load(.acquire);
+        if (value > 0) return value;
+    }
+    return cursor;
 }
 
 fn flushPendingSseText(
@@ -2424,6 +2433,8 @@ test "stream projection websocket emits pause resume and close controls" {
         }
         if (std.mem.indexOf(u8, payload, "\"event\":\"control.close\"") != null) {
             saw_close = true;
+            try std.testing.expect(std.mem.indexOf(u8, payload, "\"ackedSeq\":7") != null);
+            try std.testing.expect(std.mem.indexOf(u8, payload, "\"replayFromSeq\":7") != null);
             try std.testing.expect(std.mem.indexOf(u8, payload, "\"code\":1000") != null);
             try std.testing.expect(std.mem.indexOf(u8, payload, "\"reason\":\"completed\"") != null);
         }
