@@ -14,8 +14,8 @@
 
 - `ourclaw/docs/README.md`
 - `ourclaw/docs/architecture/overall-design.md`
-- `ourclaw/docs/planning/implementation-epics.md`
-- `ourclaw/docs/planning/llm-task-breakdown.md`
+- `ourclaw/docs/specs/reference-aligned-ourclaw/README.md`
+- `ourclaw/docs/planning/README.md`
 
 ## 当前状态
 
