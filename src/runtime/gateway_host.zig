@@ -219,6 +219,7 @@ pub const GatewayHost = struct {
         const method = parts.next() orelse return;
         const target = parts.next() orelse return;
         const route = if (std.mem.indexOfScalar(u8, target, '?')) |index| target[0..index] else target;
+        const allocator = self.allocator;
 
         const body_json = if (std.mem.indexOf(u8, raw, "\r\n\r\n")) |index|
             std.mem.trim(u8, raw[index + 4 ..], "\r\n")
@@ -226,15 +227,18 @@ pub const GatewayHost = struct {
             "";
 
         if (std.mem.eql(u8, route, "/health")) {
-            self.writeHttpResponse(stream, 200, "application/json", "{\"status\":\"ok\"}") catch {};
+            const payload = buildHealthJson(allocator, self.status()) catch return;
+            defer allocator.free(payload);
+            self.writeHttpResponse(stream, 200, "application/json", payload) catch {};
             return;
         }
         if (std.mem.eql(u8, route, "/ready")) {
-            self.writeHttpResponse(stream, 200, "application/json", "{\"ready\":true}") catch {};
+            const payload = buildReadyJson(allocator, self.status()) catch return;
+            defer allocator.free(payload);
+            self.writeHttpResponse(stream, 200, "application/json", payload) catch {};
             return;
         }
 
-        const allocator = self.allocator;
         const request = GatewayRequest{
             .request_id = "gateway_listener",
             .method = method,
@@ -437,6 +441,74 @@ pub const GatewayHost = struct {
     }
 };
 
+fn buildHealthJson(allocator: std.mem.Allocator, status: GatewayStatus) anyerror![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    const writer = buf.writer(allocator);
+    try writer.writeAll("{\"status\":\"");
+    try writer.writeAll(healthLabel(status));
+    try writer.writeAll("\",\"healthy\":");
+    try writer.writeAll(if (status.running and status.listener_ready and status.handler_attached and status.last_error == null) "true" else "false");
+    try writer.writeAll(",\"running\":");
+    try writer.writeAll(if (status.running) "true" else "false");
+    try writer.writeAll(",\"listenerReady\":");
+    try writer.writeAll(if (status.listener_ready) "true" else "false");
+    try writer.writeAll(",\"handlerAttached\":");
+    try writer.writeAll(if (status.handler_attached) "true" else "false");
+    try writer.print(",\"streamSubscriptions\":{d},\"lastErrorCode\":", .{status.stream_subscriptions});
+    if (status.last_error) |err| {
+        try writeJsonString(writer, err);
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeByte('}');
+    return allocator.dupe(u8, buf.items);
+}
+
+fn buildReadyJson(allocator: std.mem.Allocator, status: GatewayStatus) anyerror![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    const writer = buf.writer(allocator);
+    try writer.writeAll("{\"ready\":");
+    try writer.writeAll(if (status.running and status.listener_ready and status.handler_attached and status.last_error == null) "true" else "false");
+    try writer.writeAll(",\"running\":");
+    try writer.writeAll(if (status.running) "true" else "false");
+    try writer.writeAll(",\"listenerReady\":");
+    try writer.writeAll(if (status.listener_ready) "true" else "false");
+    try writer.writeAll(",\"handlerAttached\":");
+    try writer.writeAll(if (status.handler_attached) "true" else "false");
+    try writer.writeAll(",\"lastErrorCode\":");
+    if (status.last_error) |err| {
+        try writeJsonString(writer, err);
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeByte('}');
+    return allocator.dupe(u8, buf.items);
+}
+
+fn healthLabel(status: GatewayStatus) []const u8 {
+    if (status.last_error != null) return "degraded";
+    if (!status.running) return "stopped";
+    if (!status.listener_ready or !status.handler_attached) return "starting";
+    return "ok";
+}
+
+fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
+    try writer.writeByte('"');
+    for (value) |ch| {
+        switch (ch) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(ch),
+        }
+    }
+    try writer.writeByte('"');
+}
+
 const TestClientEvents = struct {
     close_count: usize = 0,
     close_code: ?u16 = null,
@@ -531,4 +603,32 @@ test "gateway host reload records listener lifecycle metadata" {
     const status = host.status();
     try std.testing.expect(status.reload_count >= 1);
     try std.testing.expect(status.last_reloaded_ms != null);
+}
+
+test "gateway host health and ready payloads reflect status" {
+    var host = try GatewayHost.init(std.testing.allocator, "127.0.0.1", 0);
+    defer host.deinit();
+
+    host.setHandler(.{ .ptr = undefined, .handle = struct {
+        fn handle(_: *anyopaque, allocator: std.mem.Allocator, _: GatewayRequest) anyerror!GatewayResponse {
+            return .{ .status_code = 200, .body = .{ .buffered = try allocator.dupe(u8, "{}") } };
+        }
+    }.handle });
+
+    const stopped_health_json = try buildHealthJson(std.testing.allocator, host.status());
+    defer std.testing.allocator.free(stopped_health_json);
+    try std.testing.expect(std.mem.indexOf(u8, stopped_health_json, "\"status\":\"stopped\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stopped_health_json, "\"healthy\":false") != null);
+
+    host.running = true;
+    host.listener_ready = true;
+
+    const running_health_json = try buildHealthJson(std.testing.allocator, host.status());
+    defer std.testing.allocator.free(running_health_json);
+    try std.testing.expect(std.mem.indexOf(u8, running_health_json, "\"running\":true") != null);
+
+    const ready_json = try buildReadyJson(std.testing.allocator, host.status());
+    defer std.testing.allocator.free(ready_json);
+    try std.testing.expect(std.mem.indexOf(u8, ready_json, "\"ready\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready_json, "\"handlerAttached\":true") != null);
 }
