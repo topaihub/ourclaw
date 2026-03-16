@@ -1,4 +1,6 @@
 const std = @import("std");
+const providers = @import("../providers/root.zig");
+const security = @import("../security/policy.zig");
 
 pub const MemoryEntry = struct {
     session_id: []u8,
@@ -6,15 +8,40 @@ pub const MemoryEntry = struct {
     content_json: []u8,
     ts_unix_ms: i64,
     embedding: EmbeddingVector,
+    embedding_strategy: EmbeddingStrategy,
+    embedding_provider: ?[]u8,
+    embedding_model: ?[]u8,
 
     pub fn deinit(self: *MemoryEntry, allocator: std.mem.Allocator) void {
         allocator.free(self.session_id);
         allocator.free(self.kind);
         allocator.free(self.content_json);
+        if (self.embedding_provider) |value| allocator.free(value);
+        if (self.embedding_model) |value| allocator.free(value);
     }
 };
 
-pub const EmbeddingVector = [8]f32;
+pub const EMBEDDING_DIMENSIONS: usize = providers.EmbeddingDimensions;
+
+pub const EmbeddingStrategy = enum {
+    local_bow_v1,
+    provider_proxy_v1,
+};
+
+pub const RankingReason = enum {
+    hybrid_match,
+    keyword_overlap,
+    embedding_similarity,
+};
+
+pub const EmbeddingDescriptor = struct {
+    strategy: EmbeddingStrategy = .local_bow_v1,
+    dimensions: usize = EMBEDDING_DIMENSIONS,
+    provider_id: ?[]const u8 = null,
+    model: ?[]const u8 = null,
+};
+
+pub const EmbeddingVector = providers.EmbeddingVector;
 
 pub const MigrationPreview = struct {
     from_version: u32,
@@ -37,10 +64,32 @@ pub const MemoryHit = struct {
     kind: []u8,
     content_json: []u8,
     score: usize,
+    rank: usize,
+    ts_unix_ms: i64,
+    embedding_strategy: EmbeddingStrategy,
+    embedding_provider: ?[]u8,
+    embedding_model: ?[]u8,
+    ranking_reason: RankingReason,
+    embedding_score: usize,
+    keyword_overlap: usize,
+    kind_weight: usize,
 
     pub fn deinit(self: *MemoryHit, allocator: std.mem.Allocator) void {
         allocator.free(self.kind);
         allocator.free(self.content_json);
+        if (self.embedding_provider) |value| allocator.free(value);
+        if (self.embedding_model) |value| allocator.free(value);
+    }
+};
+
+pub const EmbeddingRuntimeConfig = struct {
+    strategy: EmbeddingStrategy = .local_bow_v1,
+    provider_id: ?[]u8 = null,
+    model: ?[]u8 = null,
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.provider_id) |value| allocator.free(value);
+        if (self.model) |value| allocator.free(value);
     }
 };
 
@@ -58,6 +107,8 @@ pub const SessionSummary = struct {
 pub const MemoryRuntime = struct {
     allocator: std.mem.Allocator,
     entries: std.ArrayListUnmanaged(MemoryEntry) = .empty,
+    embedding_config: EmbeddingRuntimeConfig = .{},
+    embedding_provider: ?providers.EmbeddingProvider = null,
 
     const Self = @This();
 
@@ -70,6 +121,7 @@ pub const MemoryRuntime = struct {
             entry.deinit(self.allocator);
         }
         self.entries.deinit(self.allocator);
+        self.embedding_config.deinit(self.allocator);
     }
 
     pub fn appendUserPrompt(self: *Self, session_id: []const u8, prompt: []const u8) anyerror!void {
@@ -132,6 +184,31 @@ pub const MemoryRuntime = struct {
         return total;
     }
 
+    pub fn embeddingDescriptor(self: *const Self) EmbeddingDescriptor {
+        return .{
+            .strategy = self.embedding_config.strategy,
+            .dimensions = EMBEDDING_DIMENSIONS,
+            .provider_id = self.embedding_config.provider_id,
+            .model = self.embedding_config.model,
+        };
+    }
+
+    pub fn setEmbeddingProvider(self: *Self, provider_id: ?[]const u8) anyerror!void {
+        try replaceOptionalOwnedString(self.allocator, &self.embedding_config.provider_id, provider_id);
+    }
+
+    pub fn setEmbeddingModel(self: *Self, model: ?[]const u8) anyerror!void {
+        try replaceOptionalOwnedString(self.allocator, &self.embedding_config.model, model);
+    }
+
+    pub fn bindProviderRegistry(self: *Self, provider_registry: *providers.ProviderRegistry) void {
+        self.bindEmbeddingProvider(provider_registry.asEmbeddingProvider());
+    }
+
+    pub fn bindEmbeddingProvider(self: *Self, embedding_provider: providers.EmbeddingProvider) void {
+        self.embedding_provider = embedding_provider;
+    }
+
     pub fn summarizeSession(self: *Self, allocator: std.mem.Allocator, session_id: []const u8, max_items: usize) anyerror!SessionSummary {
         var recall = try self.recallForTurn(allocator, session_id, max_items);
         defer recall.deinit(allocator);
@@ -147,19 +224,33 @@ pub const MemoryRuntime = struct {
         var hits: std.ArrayListUnmanaged(MemoryHit) = .empty;
         defer hits.deinit(allocator);
 
+        const query_embedding = try embedQuery(self, query);
+
         for (self.entries.items) |entry| {
             if (!std.mem.eql(u8, entry.session_id, session_id)) continue;
-            const score = scoreEntry(entry, query);
-            if (score == 0) continue;
+            const breakdown = scoreEntry(entry, query, query_embedding);
+            if (!breakdown.has_match) continue;
 
             try hits.append(allocator, .{
                 .kind = try allocator.dupe(u8, entry.kind),
                 .content_json = try allocator.dupe(u8, entry.content_json),
-                .score = score,
+                .score = breakdown.final_score,
+                .rank = 0,
+                .ts_unix_ms = entry.ts_unix_ms,
+                .embedding_strategy = entry.embedding_strategy,
+                .embedding_provider = if (entry.embedding_provider) |value| try allocator.dupe(u8, value) else null,
+                .embedding_model = if (entry.embedding_model) |value| try allocator.dupe(u8, value) else null,
+                .ranking_reason = breakdown.reason,
+                .embedding_score = breakdown.embedding_score,
+                .keyword_overlap = breakdown.keyword_overlap,
+                .kind_weight = breakdown.kind_weight,
             });
         }
 
         std.mem.sort(MemoryHit, hits.items, {}, lessThanHit);
+        for (hits.items, 0..) |*hit, index| {
+            hit.rank = index + 1;
+        }
 
         const item_count = @min(max_items, hits.items.len);
         const result = try allocator.alloc(MemoryHit, item_count);
@@ -200,12 +291,17 @@ pub const MemoryRuntime = struct {
     fn appendEntry(self: *Self, session_id: []const u8, kind: []const u8, content_json: []const u8) anyerror!void {
         const content_copy = try self.allocator.dupe(u8, content_json);
         errdefer self.allocator.free(content_copy);
+        var embedding = try buildEmbedding(self, content_json);
+        errdefer embedding.deinit(self.allocator);
         try self.entries.append(self.allocator, .{
             .session_id = try self.allocator.dupe(u8, session_id),
             .kind = try self.allocator.dupe(u8, kind),
             .content_json = content_copy,
             .ts_unix_ms = std.time.milliTimestamp(),
-            .embedding = embedText(content_json),
+            .embedding = embedding.vector,
+            .embedding_strategy = embedding.strategy,
+            .embedding_provider = embedding.provider_id,
+            .embedding_model = embedding.model,
         });
     }
 
@@ -242,10 +338,52 @@ pub const MemoryRuntime = struct {
     }
 };
 
-fn scoreEntry(entry: MemoryEntry, query: []const u8) usize {
-    const query_embedding = embedText(query);
+const EmbeddingBuildResult = struct {
+    vector: EmbeddingVector,
+    strategy: EmbeddingStrategy,
+    provider_id: ?[]u8,
+    model: ?[]u8,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.provider_id) |value| allocator.free(value);
+        if (self.model) |value| allocator.free(value);
+    }
+};
+
+const RankingBreakdown = struct {
+    has_match: bool,
+    final_score: usize,
+    embedding_score: usize,
+    keyword_overlap: usize,
+    kind_weight: usize,
+    reason: RankingReason,
+};
+
+fn scoreEntry(entry: MemoryEntry, query: []const u8, query_embedding: EmbeddingVector) RankingBreakdown {
     const dot = dotProduct(entry.embedding, query_embedding);
-    return @intFromFloat(if (dot <= 0) 0 else dot * 100.0);
+    const embedding_score: usize = @intFromFloat(if (dot <= 0) 0 else dot * 100.0);
+    const keyword_overlap = countKeywordOverlap(entry.content_json, query);
+    const weight = kindWeight(entry.kind);
+    const has_match = keyword_overlap > 0 or embedding_score >= 8;
+    if (!has_match) {
+        return .{
+            .has_match = false,
+            .final_score = 0,
+            .embedding_score = embedding_score,
+            .keyword_overlap = keyword_overlap,
+            .kind_weight = weight,
+            .reason = .embedding_similarity,
+        };
+    }
+
+    return .{
+        .has_match = true,
+        .final_score = embedding_score + (keyword_overlap * 100) + weight,
+        .embedding_score = embedding_score,
+        .keyword_overlap = keyword_overlap,
+        .kind_weight = weight,
+        .reason = rankingReason(keyword_overlap, embedding_score),
+    };
 }
 
 fn embedText(text: []const u8) EmbeddingVector {
@@ -255,6 +393,62 @@ fn embedText(text: []const u8) EmbeddingVector {
         vector[bucket] += 1;
     }
     return normalize(vector);
+}
+
+fn providerStrategyToMemory(strategy: providers.EmbeddingStrategy) EmbeddingStrategy {
+    return switch (strategy) {
+        .provider_proxy_v1 => .provider_proxy_v1,
+    };
+}
+
+fn duplicateOptional(allocator: std.mem.Allocator, value: ?[]const u8) anyerror!?[]u8 {
+    return if (value) |actual| try allocator.dupe(u8, actual) else null;
+}
+
+fn configuredModelOrDefault(self: *const MemoryRuntime) ?[]const u8 {
+    return if (self.embedding_config.model) |value| value else null;
+}
+
+fn buildEmbedding(self: *MemoryRuntime, text: []const u8) anyerror!EmbeddingBuildResult {
+    if (self.embedding_config.provider_id) |provider_id| {
+        if (!std.mem.eql(u8, provider_id, "local")) {
+            if (self.embedding_provider) |embedding_provider| {
+                if ((embedding_provider.supportsEmbeddings(provider_id) catch false)) {
+                    const response = embedding_provider.embedText(self.allocator, .{
+                        .provider_id = provider_id,
+                        .model = configuredModelOrDefault(self),
+                        .input = text,
+                    }) catch {
+                        return .{
+                            .vector = embedText(text),
+                            .strategy = .local_bow_v1,
+                            .provider_id = try duplicateOptional(self.allocator, self.embedding_config.provider_id),
+                            .model = try duplicateOptional(self.allocator, self.embedding_config.model),
+                        };
+                    };
+                    return .{
+                        .vector = response.vector,
+                        .strategy = providerStrategyToMemory(response.strategy),
+                        .provider_id = response.provider_id,
+                        .model = response.model,
+                    };
+                }
+            }
+        }
+    }
+
+    return .{
+        .vector = embedText(text),
+        .strategy = .local_bow_v1,
+        .provider_id = try duplicateOptional(self.allocator, self.embedding_config.provider_id),
+        .model = try duplicateOptional(self.allocator, self.embedding_config.model),
+    };
+}
+
+fn embedQuery(self: *MemoryRuntime, query: []const u8) anyerror!EmbeddingVector {
+    var embedding = try buildEmbedding(self, query);
+    defer embedding.deinit(self.allocator);
+    return embedding.vector;
 }
 
 fn normalize(vector: EmbeddingVector) EmbeddingVector {
@@ -273,6 +467,30 @@ fn dotProduct(a: EmbeddingVector, b: EmbeddingVector) f32 {
     return sum;
 }
 
+fn rankingReason(keyword_overlap: usize, embedding_score: usize) RankingReason {
+    if (keyword_overlap > 0 and embedding_score > 0) return .hybrid_match;
+    if (keyword_overlap > 0) return .keyword_overlap;
+    return .embedding_similarity;
+}
+
+fn kindWeight(kind: []const u8) usize {
+    if (std.mem.eql(u8, kind, "assistant_response")) return 24;
+    if (std.mem.eql(u8, kind, "tool_result")) return 18;
+    if (std.mem.eql(u8, kind, "session_summary")) return 14;
+    if (std.mem.eql(u8, kind, "user_prompt")) return 10;
+    return 6;
+}
+
+fn countKeywordOverlap(haystack: []const u8, query: []const u8) usize {
+    var total: usize = 0;
+    var iter = std.mem.tokenizeAny(u8, query, " \t\r\n,.:;!?()[]{}\"'");
+    while (iter.next()) |token| {
+        if (token.len == 0) continue;
+        if (containsAsciiIgnoreCase(haystack, token)) total += 1;
+    }
+    return total;
+}
+
 fn replaceVersionOne(allocator: std.mem.Allocator, snapshot_json: []const u8) anyerror![]u8 {
     const needle = "\"version\":1";
     const replacement = "\"version\":2";
@@ -286,6 +504,11 @@ fn replaceVersionOne(allocator: std.mem.Allocator, snapshot_json: []const u8) an
     return allocator.dupe(u8, buf.items);
 }
 
+fn replaceOptionalOwnedString(allocator: std.mem.Allocator, target: *?[]u8, next: ?[]const u8) anyerror!void {
+    if (target.*) |previous| allocator.free(previous);
+    target.* = if (next) |value| try allocator.dupe(u8, value) else null;
+}
+
 fn containsAsciiIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0 or haystack.len < needle.len) return false;
     var start: usize = 0;
@@ -296,7 +519,9 @@ fn containsAsciiIgnoreCase(haystack: []const u8, needle: []const u8) bool {
 }
 
 fn lessThanHit(_: void, a: MemoryHit, b: MemoryHit) bool {
-    return a.score > b.score;
+    if (a.score != b.score) return a.score > b.score;
+    if (a.keyword_overlap != b.keyword_overlap) return a.keyword_overlap > b.keyword_overlap;
+    return a.ts_unix_ms > b.ts_unix_ms;
 }
 
 test "memory runtime appends and recalls entries" {
@@ -317,6 +542,9 @@ test "memory runtime retrieves and compacts session entries" {
     var runtime = MemoryRuntime.init(std.testing.allocator);
     defer runtime.deinit();
 
+    try runtime.setEmbeddingProvider("local");
+    try runtime.setEmbeddingModel("local-bow-v1");
+
     try runtime.appendUserPrompt("sess_02", "provider health check");
     try runtime.appendToolResult("sess_02", "http_request", "{\"status\":200}");
     try runtime.appendAssistantResponse("sess_02", "provider health is green");
@@ -329,6 +557,11 @@ test "memory runtime retrieves and compacts session entries" {
 
     try std.testing.expect(hits.len >= 1);
     try std.testing.expect(hits[0].score >= 1);
+    try std.testing.expectEqual(@as(usize, 1), hits[0].rank);
+    try std.testing.expect(hits[0].keyword_overlap >= 1);
+    try std.testing.expectEqual(EmbeddingStrategy.local_bow_v1, hits[0].embedding_strategy);
+    try std.testing.expectEqualStrings("local", hits[0].embedding_provider.?);
+    try std.testing.expectEqualStrings("local-bow-v1", hits[0].embedding_model.?);
 
     var summary = try runtime.compactSession(std.testing.allocator, "sess_02", 1);
     defer summary.deinit(std.testing.allocator);
@@ -340,6 +573,8 @@ test "memory runtime retrieves and compacts session entries" {
 test "memory runtime exports and migrates snapshot" {
     var runtime = MemoryRuntime.init(std.testing.allocator);
     defer runtime.deinit();
+    try runtime.setEmbeddingProvider("local");
+    try runtime.setEmbeddingModel("local-bow-v1");
     try runtime.appendUserPrompt("sess_03", "hello migration");
 
     const snapshot = try runtime.exportSnapshotJson(std.testing.allocator);
@@ -352,4 +587,51 @@ test "memory runtime exports and migrates snapshot" {
     const migrated = try runtime.migrateSnapshotJson(std.testing.allocator, "{\"version\":1,\"entries\":[]}");
     defer std.testing.allocator.free(migrated);
     try std.testing.expect(std.mem.indexOf(u8, migrated, "\"version\":2") != null);
+}
+
+test "memory runtime retrieval ranking exposes rich metadata" {
+    var runtime = MemoryRuntime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    var secrets = security.MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    registry.setSecretStore(&secrets);
+    try registry.register(.{
+        .id = "openai",
+        .label = "OpenAI",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .default_embedding_model = "text-embedding-3-small",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_embeddings = true,
+        .health_json = "{}",
+    });
+    runtime.bindProviderRegistry(&registry);
+
+    try runtime.setEmbeddingProvider("openai");
+    try runtime.setEmbeddingModel("text-embedding-3-small");
+
+    try runtime.appendUserPrompt("sess_rank", "deploy gateway status");
+    try runtime.appendAssistantResponse("sess_rank", "gateway deploy status is green");
+    try runtime.appendToolResult("sess_rank", "http_request", "{\"status\":200,\"service\":\"gateway\"}");
+
+    const hits = try runtime.retrieve(std.testing.allocator, "sess_rank", "gateway status", 3);
+    defer {
+        for (hits) |*hit| hit.deinit(std.testing.allocator);
+        std.testing.allocator.free(hits);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), hits.len);
+    try std.testing.expectEqual(@as(usize, 1), hits[0].rank);
+    try std.testing.expect(hits[0].score >= hits[1].score);
+    try std.testing.expect(hits[0].embedding_score > 0);
+    try std.testing.expect(hits[0].keyword_overlap >= 1);
+    try std.testing.expect(hits[0].kind_weight >= hits[1].kind_weight);
+    try std.testing.expectEqual(EmbeddingStrategy.provider_proxy_v1, hits[0].embedding_strategy);
+    try std.testing.expectEqualStrings("openai", hits[0].embedding_provider.?);
+    try std.testing.expectEqualStrings("text-embedding-3-small", hits[0].embedding_model.?);
+    try std.testing.expect(hits[0].ranking_reason == .hybrid_match or hits[0].ranking_reason == .keyword_overlap);
 }

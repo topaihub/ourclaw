@@ -1,5 +1,6 @@
 const std = @import("std");
 const framework = @import("framework");
+const memory_runtime = @import("../domain/memory_runtime.zig");
 const providers = @import("../providers/root.zig");
 const heartbeat = @import("heartbeat.zig");
 
@@ -9,6 +10,7 @@ pub const ConfigRuntimeHooks = struct {
     record_sink: *framework.MemoryConfigSideEffectSink,
     post_write_sink: framework.MemoryConfigPostWriteHookSink,
     provider_registry: *providers.ProviderRegistry,
+    memory_runtime: *memory_runtime.MemoryRuntime,
     heartbeat: *heartbeat.Heartbeat,
 
     const Self = @This();
@@ -26,6 +28,7 @@ pub const ConfigRuntimeHooks = struct {
         logger: *framework.Logger,
         record_sink: *framework.MemoryConfigSideEffectSink,
         provider_registry: *providers.ProviderRegistry,
+        memory_runtime_ref: *memory_runtime.MemoryRuntime,
         hb: *heartbeat.Heartbeat,
     ) Self {
         return .{
@@ -34,6 +37,7 @@ pub const ConfigRuntimeHooks = struct {
             .record_sink = record_sink,
             .post_write_sink = framework.MemoryConfigPostWriteHookSink.init(allocator),
             .provider_registry = provider_registry,
+            .memory_runtime = memory_runtime_ref,
             .heartbeat = hb,
         };
     }
@@ -60,7 +64,7 @@ pub const ConfigRuntimeHooks = struct {
         switch (change.side_effect_kind) {
             .reload_logging => try self.applyLoggingReload(change),
             .refresh_providers => try self.provider_registry.markConfigRefresh(change.path),
-            .notify_runtime => self.heartbeat.beat(),
+            .notify_runtime => try self.applyRuntimeNotification(change),
             .restart_required => self.logger.child("config").child("side_effect").warn("config change requires restart", &.{
                 framework.LogField.string("path", change.path),
             }),
@@ -91,6 +95,20 @@ pub const ConfigRuntimeHooks = struct {
         });
     }
 
+    fn applyRuntimeNotification(self: *Self, change: *const framework.ConfigChange) anyerror!void {
+        if (std.mem.eql(u8, change.path, "memory.embedding_provider")) {
+            const parsed = try parseOptionalString(self.allocator, change.new_value_json);
+            defer if (parsed) |value| self.allocator.free(value);
+            try self.memory_runtime.setEmbeddingProvider(parsed);
+        } else if (std.mem.eql(u8, change.path, "memory.embedding_model")) {
+            const parsed = try parseOptionalString(self.allocator, change.new_value_json);
+            defer if (parsed) |value| self.allocator.free(value);
+            try self.memory_runtime.setEmbeddingModel(parsed);
+        }
+
+        self.heartbeat.beat();
+    }
+
     fn parseLogLevel(text: []const u8) ?framework.LogLevel {
         if (std.mem.eql(u8, text, "trace")) return .trace;
         if (std.mem.eql(u8, text, "debug")) return .debug;
@@ -100,6 +118,12 @@ pub const ConfigRuntimeHooks = struct {
         if (std.mem.eql(u8, text, "fatal")) return .fatal;
         if (std.mem.eql(u8, text, "silent")) return .silent;
         return null;
+    }
+
+    fn parseOptionalString(allocator: std.mem.Allocator, value_json: []const u8) anyerror!?[]u8 {
+        var parsed = try framework.ConfigValueParser.parseJsonValue(allocator, .string, value_json);
+        defer parsed.deinit(allocator);
+        return try allocator.dupe(u8, parsed.string);
     }
 
     fn applySideEffectErased(ptr: *anyopaque, change: *const framework.ConfigChange) anyerror!void {

@@ -17,6 +17,7 @@ pub const ConfigCategory = enum {
     gateway,
     logging,
     providers,
+    memory,
     runtime,
     service,
 };
@@ -27,6 +28,7 @@ pub const DisplayGroup = enum {
     file_logging,
     provider_openai,
     provider_anthropic,
+    memory_retrieval,
     runtime_limits,
     service_lifecycle,
 };
@@ -268,6 +270,40 @@ const FIELD_DEFINITIONS = [_]ConfigFieldDefinition{
         },
     },
     .{
+        .path = "memory.embedding_provider",
+        .label = "Memory Embedding Provider",
+        .description = "Selected embedding provider for memory retrieval",
+        .category = .memory,
+        .display_group = .memory_retrieval,
+        .value_kind = .string,
+        .required = false,
+        .default_value_json = "\"local\"",
+        .side_effect_kind = .notify_runtime,
+        .field_definition = .{
+            .key = "memory.embedding_provider",
+            .required = false,
+            .value_kind = .string,
+            .rules = &.{.non_empty_string},
+        },
+    },
+    .{
+        .path = "memory.embedding_model",
+        .label = "Memory Embedding Model",
+        .description = "Embedding model or local strategy label used for memory retrieval",
+        .category = .memory,
+        .display_group = .memory_retrieval,
+        .value_kind = .string,
+        .required = false,
+        .default_value_json = "\"local-bow-v1\"",
+        .side_effect_kind = .notify_runtime,
+        .field_definition = .{
+            .key = "memory.embedding_model",
+            .required = false,
+            .value_kind = .string,
+            .rules = &.{.non_empty_string},
+        },
+    },
+    .{
         .path = "runtime.max_tool_rounds",
         .label = "Maximum Tool Rounds",
         .description = "Upper bound for provider→tool→provider loop rounds",
@@ -392,7 +428,11 @@ test "config field registry exposes stable metadata" {
     try std.testing.expectEqual(DisplayGroup.network_bind, definition.display_group);
     try std.testing.expectEqualStrings("8080", definition.default_value_json.?);
     try std.testing.expectEqual(framework.ConfigSideEffectKind.restart_required, definition.side_effect_kind);
-    try std.testing.expectEqual(@as(usize, 14), ConfigFieldRegistry.all().len);
+    const memory_provider = ConfigFieldRegistry.find("memory.embedding_provider").?;
+    try std.testing.expectEqual(ConfigCategory.memory, memory_provider.category);
+    try std.testing.expectEqual(DisplayGroup.memory_retrieval, memory_provider.display_group);
+    try std.testing.expectEqualStrings("\"local\"", memory_provider.default_value_json.?);
+    try std.testing.expectEqual(@as(usize, 16), ConfigFieldRegistry.all().len);
     try std.testing.expectEqual(@as(usize, 3), ConfigFieldRegistry.configRules().len);
     try std.testing.expect(ConfigFieldRegistry.defaultEntries().len >= 10);
 }
