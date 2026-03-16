@@ -2,6 +2,7 @@ const std = @import("std");
 const framework = @import("framework");
 const services_model = @import("../domain/services.zig");
 const runtime_model = @import("../runtime/app_context.zig");
+const prompt_assembly = @import("../domain/prompt_assembly.zig");
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{
@@ -17,6 +18,9 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
             .{ .key = "tool_id", .required = false, .value_kind = .string, .rules = &.{.non_empty_string} },
             .{ .key = "tool_input_json", .required = false, .value_kind = .string },
             .{ .key = "confirm_tool_risk", .required = false, .value_kind = .boolean },
+            .{ .key = "allow_provider_tools", .required = false, .value_kind = .boolean },
+            .{ .key = "prompt_profile", .required = false, .value_kind = .string, .rules = &.{.non_empty_string} },
+            .{ .key = "response_mode", .required = false, .value_kind = .string, .rules = &.{.non_empty_string} },
             .{ .key = "max_tool_rounds", .required = false, .value_kind = .integer, .rules = &.{.{ .int_range = .{ .min = 0, .max = 16 } }} },
             .{ .key = "tool_call_budget", .required = false, .value_kind = .integer, .rules = &.{.{ .int_range = .{ .min = 0, .max = 32 } }} },
             .{ .key = "provider_round_budget", .required = false, .value_kind = .integer, .rules = &.{.{ .int_range = .{ .min = 0, .max = 16 } }} },
@@ -45,6 +49,9 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         .tool_id = if (ctx.param("tool_id")) |field| field.value.string else null,
         .tool_input_json = if (ctx.param("tool_input_json")) |field| field.value.string else null,
         .confirm_tool_risk = if (ctx.param("confirm_tool_risk")) |field| field.value.boolean else false,
+        .allow_provider_tools = if (ctx.param("allow_provider_tools")) |field| field.value.boolean else true,
+        .prompt_profile = try parsePromptProfile(ctx),
+        .response_mode = try parseResponseMode(ctx),
         .max_tool_rounds = if (ctx.param("max_tool_rounds")) |field| @intCast(field.value.integer) else 4,
         .tool_call_budget = if (ctx.param("tool_call_budget")) |field| @intCast(field.value.integer) else 4,
         .provider_round_budget = if (ctx.param("provider_round_budget")) |field| @intCast(field.value.integer) else 4,
@@ -128,4 +135,14 @@ fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
         }
     }
     try writer.writeByte('"');
+}
+
+fn parsePromptProfile(ctx: *const framework.CommandContext) anyerror!prompt_assembly.PromptProfile {
+    const raw = if (ctx.param("prompt_profile")) |field| field.value.string else return .default;
+    return std.meta.stringToEnum(prompt_assembly.PromptProfile, raw) orelse error.InvalidPromptProfile;
+}
+
+fn parseResponseMode(ctx: *const framework.CommandContext) anyerror!prompt_assembly.ResponseMode {
+    const raw = if (ctx.param("response_mode")) |field| field.value.string else return .standard;
+    return std.meta.stringToEnum(prompt_assembly.ResponseMode, raw) orelse error.InvalidResponseMode;
 }

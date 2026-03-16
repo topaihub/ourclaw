@@ -190,6 +190,7 @@ pub const AgentRuntime = struct {
         var remaining_provider_attempt_budget = request.provider_attempt_budget;
         var prompt_tokens: ?u32 = null;
         var completion_tokens: ?u32 = null;
+        var last_provider_tools_enabled = false;
 
         if (request.tool_id) |tool_id| {
             try ensureNotCancelled(request);
@@ -212,6 +213,7 @@ pub const AgentRuntime = struct {
             try ensureNotCancelled(request);
             const provider_supports_tools = self.provider_registry.supportsTools(request.provider_id) catch false;
             const provider_tools_enabled = request.allow_provider_tools and provider_supports_tools;
+            last_provider_tools_enabled = provider_tools_enabled;
 
             const provider_round_started_payload = try std.fmt.allocPrint(
                 self.allocator,
@@ -374,7 +376,7 @@ pub const AgentRuntime = struct {
         var turn_buf: std.ArrayListUnmanaged(u8) = .empty;
         defer turn_buf.deinit(self.allocator);
         const turn_writer = turn_buf.writer(self.allocator);
-        try turn_writer.print("{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":", .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget });
+        try turn_writer.print("{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"allowProviderTools\":{s},\"promptProfile\":\"{s}\",\"responseMode\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":", .{ request.provider_id, selected_model, if (last_provider_tools_enabled) "true" else "false", @tagName(request.prompt_profile), @tagName(request.response_mode), provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget });
         if (tool_id_owned) |tool_id| {
             try turn_writer.print("\"{s}\"", .{tool_id});
         } else {
