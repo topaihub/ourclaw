@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **D2 已完成（2026-03-16）**：
+  - CLI 已补齐 `agent.*`、`memory.summary`、`session.get`、`events.subscribe/poll`、`observer.recent` 的关键参数面
+  - HTTP / bridge 继续保留通用 `params` 透传，三入口当前已达到主要命令参数支持一致
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（185/185）
+
 - **D1 已完成（2026-03-16）**：
   - WebSocket `ack` 已真正进入 close 控制语义，`control.close` 会优先回显客户端已 ack 的进度
   - CLI live 已补 `--last-event-id`，开始复用现有 replay/resume 语义

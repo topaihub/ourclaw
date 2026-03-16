@@ -121,9 +121,14 @@
     - 已完成第二子步：CLI live 已补 `--last-event-id`，能够复用既有 `replay_only` / execution-cursor resume 语义
     - 完成判断：SSE / WS / bridge / CLI 当前已形成更一致的 live control 语义；更细的参数面对齐转入 D2 处理
 
-- [ ] **D2. 完成 CLI / HTTP / bridge 命令参数面对齐**
+- [x] **D2. 完成 CLI / HTTP / bridge 命令参数面对齐**
   - 主线落点：`ourclaw/src/interfaces/*`
   - 完成定义：主要命令在三个入口的参数支持一致
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：CLI 已补齐 `agent.run` / `agent.stream` 的策略参数（`prompt_profile`、`response_mode`、`max_tool_rounds`、`allow_provider_tools` 等）
+    - 已完成第二子步：CLI 已补齐 `memory.summary` / `session.get` 的可选参数（`max_items`、`summary_items`、`recent_turns_limit`）
+    - 已完成第三子步：CLI 已补齐 `events.subscribe --after-seq`、`events.poll --execution-id/--session-id`、`observer.recent --execution-id/--session-id`
+    - 完成判断：HTTP / bridge 的通用透传与 CLI 的关键缺口当前已收口，D2 可视为完成
 
 ### Wave E — Manager contract 深化
 
