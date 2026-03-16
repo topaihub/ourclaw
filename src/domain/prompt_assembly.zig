@@ -43,6 +43,7 @@ pub const PromptAssemblyInput = struct {
     response_mode: ResponseMode = .standard,
     session_event_count: usize = 0,
     tool_trace_count: usize = 0,
+    compacted_summary: ?[]const u8 = null,
     recall_summary: ?[]const u8 = null,
     tool_result_json: ?[]const u8 = null,
     allow_provider_tools: bool = true,
@@ -85,11 +86,20 @@ pub fn build(allocator: std.mem.Allocator, input: PromptAssemblyInput) anyerror!
         });
     }
 
+    if (input.compacted_summary) |compacted_summary| {
+        if (std.mem.trim(u8, compacted_summary, " \r\n\t").len > 0) {
+            try messages.append(allocator, .{
+                .role = .system,
+                .content = try std.fmt.allocPrint(allocator, "Compacted Session Summary:\n{s}", .{compacted_summary}),
+            });
+        }
+    }
+
     if (input.recall_summary) |recall_summary| {
         if (std.mem.trim(u8, recall_summary, " \r\n\t").len > 0) {
             try messages.append(allocator, .{
                 .role = .system,
-                .content = try std.fmt.allocPrint(allocator, "Memory Recall:\n{s}", .{recall_summary}),
+                .content = try std.fmt.allocPrint(allocator, "Recent Memory Recall:\n{s}", .{recall_summary}),
             });
         }
     }
@@ -139,19 +149,22 @@ test "prompt assembly builds system tools recall and user messages" {
         .response_mode = .terse,
         .session_event_count = 4,
         .tool_trace_count = 1,
+        .compacted_summary = "condensed session state",
         .recall_summary = "remember previous answer",
         .tool_result_json = "{\"tool\":\"echo\"}",
         .tool_registry = &tool_registry,
     });
     defer result.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 5), result.messages.len);
+    try std.testing.expectEqual(@as(usize, 6), result.messages.len);
     try std.testing.expectEqual(ProviderRole.system, result.messages[0].role);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "System Prompt:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Profile=`concise_operator`") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[0].content, "Identity=`operator:alice`") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "Available Tools JSON:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.messages[1].content, "\"riskLevel\":\"high\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.messages[3].content, "PROMPT_ASSEMBLY_PROBE") != null);
-    try std.testing.expectEqual(ProviderRole.tool, result.messages[4].role);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[2].content, "Compacted Session Summary:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[3].content, "Recent Memory Recall:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.messages[4].content, "PROMPT_ASSEMBLY_PROBE") != null);
+    try std.testing.expectEqual(ProviderRole.tool, result.messages[5].role);
 }

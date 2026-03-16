@@ -65,6 +65,20 @@ pub fn chatStream(
         return chunks.toOwnedSlice(allocator);
     }
 
+    if (containsMessage(request.messages, "PROMPT_ASSEMBLY_PROBE") and
+        containsMessage(request.messages, "Compacted Session Summary:") and
+        containsMessage(request.messages, "Recent Memory Recall:"))
+    {
+        try appendTextChunks(allocator, &chunks, &.{ "prompt ", "assembly ", "summary-first ", "ok" });
+        try chunks.append(allocator, .{
+            .kind = .done,
+            .finish_reason = try allocator.dupe(u8, "stop"),
+            .prompt_tokens = 24,
+            .completion_tokens = 4,
+        });
+        return chunks.toOwnedSlice(allocator);
+    }
+
     if (containsMessage(request.messages, "PROMPT_ASSEMBLY_PROBE")) {
         try appendTextChunks(allocator, &chunks, &.{ "prompt ", "assembly ", "ok" });
         try chunks.append(allocator, .{
