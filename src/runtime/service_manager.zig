@@ -22,6 +22,7 @@ pub const ServiceStatus = struct {
     lock_held: bool,
     autostart: bool,
     restart_budget_remaining: u8,
+    restart_budget_exhausted: bool,
     stale_process_detected: bool,
     install_count: usize,
     start_count: usize,
@@ -33,6 +34,7 @@ pub const ServiceStatus = struct {
 pub const RestartStatus = struct {
     stop_changed: bool,
     start_changed: bool,
+    budget_exhausted: bool,
 };
 
 pub const ServiceManager = struct {
@@ -90,13 +92,21 @@ pub const ServiceManager = struct {
     }
 
     pub fn restart(self: *ServiceManager) RestartStatus {
+        if (self.restart_budget_remaining == 0) {
+            return .{
+                .stop_changed = false,
+                .start_changed = false,
+                .budget_exhausted = true,
+            };
+        }
         self.restart_count += 1;
-        if (self.restart_budget_remaining > 0) self.restart_budget_remaining -= 1;
+        self.restart_budget_remaining -= 1;
         const stop_changed = self.stop();
         const start_changed = self.start();
         return .{
             .stop_changed = stop_changed,
             .start_changed = start_changed,
+            .budget_exhausted = false,
         };
     }
 
@@ -119,6 +129,7 @@ pub const ServiceManager = struct {
             .lock_held = self.lock_held,
             .autostart = self.autostart,
             .restart_budget_remaining = self.restart_budget_remaining,
+            .restart_budget_exhausted = self.restart_budget_remaining == 0,
             .stale_process_detected = self.stale_process_detected,
             .install_count = self.install_count,
             .start_count = self.start_count,
@@ -173,11 +184,35 @@ test "service manager lifecycle methods are idempotent where appropriate" {
     const restart = service.restart();
     try std.testing.expect(!restart.stop_changed);
     try std.testing.expect(restart.start_changed);
+    try std.testing.expect(!restart.budget_exhausted);
     try std.testing.expectEqual(@as(usize, 1), service.status().restart_count);
     try std.testing.expectEqual(@as(usize, 2), service.status().start_count);
     try std.testing.expect(service.status().pid != null);
     try std.testing.expect(service.status().lock_held);
     try std.testing.expectEqual(@as(u8, 2), service.status().restart_budget_remaining);
+}
+
+test "service manager blocks restart when budget exhausted" {
+    var gateway_host = try @import("gateway_host.zig").GatewayHost.init(std.testing.allocator, "127.0.0.1", 8080);
+    defer gateway_host.deinit();
+    var hb = @import("heartbeat.zig").Heartbeat.init();
+    var scheduler = @import("cron.zig").CronScheduler.init(std.testing.allocator);
+    defer scheduler.deinit();
+    var host = runtime_host.RuntimeHost.init(&gateway_host, &hb, &scheduler);
+    var service = ServiceManager.init(&host);
+
+    try std.testing.expect(service.start());
+    _ = service.restart();
+    _ = service.restart();
+    _ = service.restart();
+    try std.testing.expectEqual(@as(u8, 0), service.status().restart_budget_remaining);
+    try std.testing.expect(service.status().restart_budget_exhausted);
+
+    const denied = service.restart();
+    try std.testing.expect(denied.budget_exhausted);
+    try std.testing.expect(!denied.stop_changed);
+    try std.testing.expect(!denied.start_changed);
+    try std.testing.expectEqual(@as(usize, 3), service.status().restart_count);
 }
 
 test "service manager can mark stale background process" {
