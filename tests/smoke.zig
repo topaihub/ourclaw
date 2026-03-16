@@ -1447,6 +1447,8 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"running\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"listenerReady\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"reloadCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"healthState\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.result.?.success_json, "\"healthMessage\":") != null);
 
     const gateway_reload = try dispatcher.dispatch(.{ .request_id = "req_gateway_reload", .method = "gateway.reload", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_reload.result.?) {
@@ -1455,6 +1457,18 @@ test "service and gateway control commands mutate runtime state" {
     };
     try std.testing.expect(gateway_reload.ok);
     try std.testing.expect(std.mem.indexOf(u8, gateway_reload.result.?.success_json, "\"reloadCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_reload.result.?.success_json, "\"action\":\"reload\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_reload.result.?.success_json, "\"healthState\":") != null);
+
+    const gateway_subscribe = try dispatcher.dispatch(.{ .request_id = "req_gateway_stream_subscribe", .method = "gateway.stream_subscribe", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (gateway_subscribe.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(gateway_subscribe.ok);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_subscribe.result.?.success_json, "\"subscriptionId\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_subscribe.result.?.success_json, "\"streamSubscriptions\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_subscribe.result.?.success_json, "\"healthState\":") != null);
 }
 
 test "skills cron tunnel mcp hardware commands are operational" {
