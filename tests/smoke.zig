@@ -339,6 +339,110 @@ test "agent run command drives tool orchestrator and provider runtime" {
     try std.testing.expect(app.session_store.find("sess_agent_cmd") != null);
 }
 
+test "agent run command supports provider retry budget" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_retry_once_cmd",
+        .label = "Mock OpenAI Retry Once",
+        .endpoint = "mock://openai/chat_retry_once",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_agent_retry" } },
+        .{ .key = "prompt", .value = .{ .string = "hello retry" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_retry_once_cmd" } },
+        .{ .key = "provider_retry_budget", .value = .{ .integer = 1 } },
+    };
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_agent_run_retry",
+        .method = "agent.run",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "mock openai response") != null);
+}
+
+test "agent run command rejects provider round budget exhaustion" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_round_budget_cmd",
+        .label = "Mock OpenAI Round Budget",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_agent_round_budget" } },
+        .{ .key = "prompt", .value = .{ .string = "CALL_TOOL:echo" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_round_budget_cmd" } },
+        .{ .key = "provider_round_budget", .value = .{ .integer = 1 } },
+    };
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_agent_run_round_budget",
+        .method = "agent.run",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+
+    try std.testing.expect(!envelope.ok);
+    var snapshot = try app.session_store.snapshotMeta(std.testing.allocator, "sess_agent_round_budget");
+    defer snapshot.deinit(std.testing.allocator);
+    try std.testing.expect(snapshot.last_error_code != null);
+    try std.testing.expectEqualStrings("PROVIDER_ROUND_BUDGET_EXCEEDED", snapshot.last_error_code.?);
+}
+
+test "agent run command denies high-risk tool without confirmation" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_agent_risk_denied" } },
+        .{ .key = "prompt", .value = .{ .string = "hello risk" } },
+        .{ .key = "provider_id", .value = .{ .string = "provider_unused" } },
+        .{ .key = "tool_id", .value = .{ .string = "shell" } },
+        .{ .key = "tool_input_json", .value = .{ .string = "{\"command\":\"echo hello\"}" } },
+    };
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_agent_run_risk_denied",
+        .method = "agent.run",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+
+    try std.testing.expect(!envelope.ok);
+    var snapshot = try app.session_store.snapshotMeta(std.testing.allocator, "sess_agent_risk_denied");
+    defer snapshot.deinit(std.testing.allocator);
+    try std.testing.expect(snapshot.last_error_code != null);
+    try std.testing.expectEqualStrings("TOOL_RISK_CONFIRMATION_REQUIRED", snapshot.last_error_code.?);
+}
+
 test "agent stream command returns stream event snapshot" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
@@ -378,6 +482,7 @@ test "agent stream command returns stream event snapshot" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"events\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "stream.output") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "final response after tool") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "provider_native") != null);
 
     const sub_params = [_]framework.ValidationField{
         .{ .key = "topic_prefix", .value = .{ .string = "stream.output" } },
@@ -403,6 +508,7 @@ test "agent stream command returns stream event snapshot" {
     try std.testing.expect(poll.ok);
     try std.testing.expect(std.mem.indexOf(u8, poll.result.?.success_json, "\"sessionId\":\"sess_agent_stream\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, poll.result.?.success_json, "\"subscriptionId\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, poll.result.?.success_json, "provider_native") != null);
 
     const observer = try dispatcher.dispatch(.{ .request_id = "req_observer_recent_corr", .method = "observer.recent", .params = &.{.{ .key = "session_id", .value = .{ .string = "sess_agent_stream" } }}, .source = .@"test", .authority = .admin }, false);
     defer switch (observer.result.?) {
@@ -536,6 +642,14 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerId\":\"mock_openai_session_summary\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolTraceCount\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerLatencyMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRoundBudget\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRoundsRemaining\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerAttemptBudget\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerAttemptsRemaining\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolCallBudget\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"toolCallsRemaining\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"providerRetryBudget\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"totalDeadlineMs\":") != null);
 }
 
 test "cli channel records real request semantics" {
@@ -709,7 +823,7 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
 
     const tunnel_activate_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "cloudflare" } },
-        .{ .key = "endpoint", .value = .{ .string = "https://demo.example.com" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://tunnel/healthy" } },
     };
     const tunnel_activate = try dispatcher.dispatch(.{ .request_id = "req_tunnel_activate_rich", .method = "tunnel.activate", .params = tunnel_activate_params[0..], .source = .@"test", .authority = .admin }, false);
     defer if (tunnel_activate.result) |result| switch (result) {
@@ -718,6 +832,7 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(tunnel_activate.ok);
     try std.testing.expect(std.mem.indexOf(u8, tunnel_activate.result.?.success_json, "\"activationCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_activate.result.?.success_json, "\"healthState\":\"ready\"") != null);
 
     const tunnel_status = try dispatcher.dispatch(.{ .request_id = "req_tunnel_status_rich", .method = "tunnel.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer if (tunnel_status.result) |result| switch (result) {
@@ -726,10 +841,25 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(tunnel_status.ok);
     try std.testing.expect(std.mem.indexOf(u8, tunnel_status.result.?.success_json, "\"lastActivatedMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_status.result.?.success_json, "\"probeCount\":1") != null);
+
+    const tunnel_bad_params = [_]framework.ValidationField{
+        .{ .key = "kind", .value = .{ .string = "cloudflare" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://tunnel/down" } },
+    };
+    const tunnel_bad = try dispatcher.dispatch(.{ .request_id = "req_tunnel_activate_bad", .method = "tunnel.activate", .params = tunnel_bad_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (tunnel_bad.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(tunnel_bad.ok);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_bad.result.?.success_json, "\"status\":\"failed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_bad.result.?.success_json, "TunnelEndpointUnreachable") != null);
 
     const mcp_register_params = [_]framework.ValidationField{
         .{ .key = "id", .value = .{ .string = "remote" } },
         .{ .key = "transport", .value = .{ .string = "sse" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://mcp/healthy" } },
     };
     const mcp_register = try dispatcher.dispatch(.{ .request_id = "req_mcp_register_rich", .method = "mcp.register", .params = mcp_register_params[0..], .source = .@"test", .authority = .admin }, false);
     defer if (mcp_register.result) |result| switch (result) {
@@ -738,6 +868,7 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(mcp_register.ok);
     try std.testing.expect(std.mem.indexOf(u8, mcp_register.result.?.success_json, "\"registeredAtMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, mcp_register.result.?.success_json, "\"healthState\":\"ready\"") != null);
 
     const mcp_list = try dispatcher.dispatch(.{ .request_id = "req_mcp_list_rich", .method = "mcp.list", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer if (mcp_list.result) |result| switch (result) {
@@ -746,6 +877,18 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(mcp_list.ok);
     try std.testing.expect(std.mem.indexOf(u8, mcp_list.result.?.success_json, "\"registeredAtMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, mcp_list.result.?.success_json, "\"probeCount\":") != null);
+
+    const mcp_bad_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "remote_bad" } },
+        .{ .key = "transport", .value = .{ .string = "sse" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://mcp/down" } },
+    };
+    const mcp_bad = try dispatcher.dispatch(.{ .request_id = "req_mcp_register_bad", .method = "mcp.register", .params = mcp_bad_params[0..], .source = .@"test", .authority = .admin }, false);
+    try std.testing.expect(!mcp_bad.ok);
+    try std.testing.expect(mcp_bad.app_error != null);
+    try std.testing.expectEqualStrings("CORE_INTERNAL_ERROR", mcp_bad.app_error.?.code);
+    try std.testing.expectEqualStrings("McpServerUnreachable", mcp_bad.app_error.?.message);
 
     const hardware_register_params = [_]framework.ValidationField{
         .{ .key = "id", .value = .{ .string = "gpu1" } },
@@ -758,6 +901,45 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     };
     try std.testing.expect(hardware_register.ok);
     try std.testing.expect(std.mem.indexOf(u8, hardware_register.result.?.success_json, "\"registeredAtMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hardware_register.result.?.success_json, "\"healthState\":\"ready\"") != null);
+
+    const peripheral_register_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "camera1" } },
+        .{ .key = "kind", .value = .{ .string = "video" } },
+    };
+    const peripheral_register = try dispatcher.dispatch(.{ .request_id = "req_peripheral_register_rich", .method = "peripheral.register", .params = peripheral_register_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (peripheral_register.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(peripheral_register.ok);
+    try std.testing.expect(std.mem.indexOf(u8, peripheral_register.result.?.success_json, "\"healthState\":\"ready\"") != null);
+
+    const peripheral_bad_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "camera_bad" } },
+        .{ .key = "kind", .value = .{ .string = "serial" } },
+    };
+    const peripheral_bad = try dispatcher.dispatch(.{ .request_id = "req_peripheral_register_bad", .method = "peripheral.register", .params = peripheral_bad_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (peripheral_bad.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(peripheral_bad.ok);
+    try std.testing.expect(std.mem.indexOf(u8, peripheral_bad.result.?.success_json, "\"status\":\"failed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, peripheral_bad.result.?.success_json, "PeripheralUnsupportedKind") != null);
+
+    const hardware_bad_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "mystery0" } },
+        .{ .key = "label", .value = .{ .string = "Mystery Device" } },
+    };
+    const hardware_bad = try dispatcher.dispatch(.{ .request_id = "req_hardware_register_bad", .method = "hardware.register", .params = hardware_bad_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (hardware_bad.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(hardware_bad.ok);
+    try std.testing.expect(std.mem.indexOf(u8, hardware_bad.result.?.success_json, "\"status\":\"failed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hardware_bad.result.?.success_json, "HardwareUnsupportedKind") != null);
 
     const hardware_list = try dispatcher.dispatch(.{ .request_id = "req_hardware_list_rich", .method = "hardware.list", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer if (hardware_list.result) |result| switch (result) {
@@ -767,6 +949,53 @@ test "skills cron tunnel mcp hardware commands expose richer operational state" 
     try std.testing.expect(hardware_list.ok);
     try std.testing.expect(std.mem.indexOf(u8, hardware_list.result.?.success_json, "\"nodes\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, hardware_list.result.?.success_json, "\"registeredAtMs\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hardware_list.result.?.success_json, "\"peripherals\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hardware_list.result.?.success_json, "\"healthState\":\"ready\"") != null);
+
+    const voice_attach_bad_params = [_]framework.ValidationField{.{ .key = "peripheral_id", .value = .{ .string = "camera1" } }};
+    const voice_bad = try dispatcher.dispatch(.{ .request_id = "req_voice_attach_bad", .method = "voice.attach", .params = voice_attach_bad_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (voice_bad.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(voice_bad.ok);
+    try std.testing.expect(std.mem.indexOf(u8, voice_bad.result.?.success_json, "VoiceUnsupportedPeripheralKind") != null);
+
+    const voice_peripheral_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "mic0" } },
+        .{ .key = "kind", .value = .{ .string = "audio" } },
+    };
+    const voice_peripheral = try dispatcher.dispatch(.{ .request_id = "req_peripheral_register_voice", .method = "peripheral.register", .params = voice_peripheral_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (voice_peripheral.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(voice_peripheral.ok);
+
+    const voice_attach_params = [_]framework.ValidationField{.{ .key = "peripheral_id", .value = .{ .string = "mic0" } }};
+    const voice_attach = try dispatcher.dispatch(.{ .request_id = "req_voice_attach", .method = "voice.attach", .params = voice_attach_params[0..], .source = .@"test", .authority = .admin }, false);
+    defer if (voice_attach.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(voice_attach.ok);
+    try std.testing.expect(std.mem.indexOf(u8, voice_attach.result.?.success_json, "\"healthState\":\"ready\"") != null);
+
+    const voice_status = try dispatcher.dispatch(.{ .request_id = "req_voice_status", .method = "voice.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer if (voice_status.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(voice_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, voice_status.result.?.success_json, "\"peripheralId\":\"mic0\"") != null);
+
+    const voice_detach = try dispatcher.dispatch(.{ .request_id = "req_voice_detach", .method = "voice.detach", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer if (voice_detach.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(voice_detach.ok);
+    try std.testing.expect(std.mem.indexOf(u8, voice_detach.result.?.success_json, "\"healthState\":\"inactive\"") != null);
 }
 
 test "memory snapshot export and migrate apply close retrieval route" {
@@ -814,10 +1043,49 @@ test "memory commands expose summary and retrieval" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
 
+    var dispatcher = app.makeDispatcher();
+    const embedding_provider_params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = "memory.embedding_provider" } },
+        .{ .key = "value", .value = .{ .string = "openai" } },
+    };
+    const set_embedding_provider = try dispatcher.dispatch(.{
+        .request_id = "req_memory_embedding_provider",
+        .method = "config.set",
+        .params = embedding_provider_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (set_embedding_provider.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(set_embedding_provider.ok);
+
+    const embedding_model_params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = "memory.embedding_model" } },
+        .{ .key = "value", .value = .{ .string = "text-embedding-3-small" } },
+    };
+    const set_embedding_model = try dispatcher.dispatch(.{
+        .request_id = "req_memory_embedding_model",
+        .method = "config.set",
+        .params = embedding_model_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (set_embedding_model.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(set_embedding_model.ok);
+
+    const descriptor = app.memory_runtime.embeddingDescriptor();
+    try std.testing.expectEqualStrings("openai", descriptor.provider_id.?);
+    try std.testing.expectEqualStrings("text-embedding-3-small", descriptor.model.?);
+
     try app.memory_runtime.appendUserPrompt("sess_mem", "hello memory");
     try app.memory_runtime.appendAssistantResponse("sess_mem", "memory answer");
+    try app.memory_runtime.appendToolResult("sess_mem", "echo", "{\"message\":\"memory tool\"}");
 
-    var dispatcher = app.makeDispatcher();
     const summary_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_mem" } },
     };
@@ -851,6 +1119,12 @@ test "memory commands expose summary and retrieval" {
         .task_accepted => {},
     };
     try std.testing.expect(retrieve.ok);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"rank\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"reason\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"embeddingStrategy\":\"provider_proxy_v1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"embeddingProvider\":\"openai\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"embeddingModel\":\"text-embedding-3-small\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "\"keywordOverlap\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, retrieve.result.?.success_json, "assistant_response") != null);
 }
 
@@ -990,7 +1264,7 @@ test "skills cron tunnel mcp hardware commands are operational" {
 
     const tunnel_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "cloudflare" } },
-        .{ .key = "endpoint", .value = .{ .string = "https://demo.example.com" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://tunnel/healthy" } },
     };
     const tunnel_activate = try dispatcher.dispatch(.{ .request_id = "req_tunnel_activate", .method = "tunnel.activate", .params = tunnel_params[0..], .source = .@"test", .authority = .admin }, false);
     defer switch (tunnel_activate.result.?) {
@@ -1002,6 +1276,7 @@ test "skills cron tunnel mcp hardware commands are operational" {
     const mcp_params = [_]framework.ValidationField{
         .{ .key = "id", .value = .{ .string = "remote" } },
         .{ .key = "transport", .value = .{ .string = "http" } },
+        .{ .key = "endpoint", .value = .{ .string = "mock://mcp/healthy" } },
     };
     const mcp_register = try dispatcher.dispatch(.{ .request_id = "req_mcp_register", .method = "mcp.register", .params = mcp_params[0..], .source = .@"test", .authority = .admin }, false);
     defer switch (mcp_register.result.?) {
