@@ -24,6 +24,8 @@ pub const ServiceStatus = struct {
     restart_budget_remaining: u8,
     restart_budget_exhausted: bool,
     stale_process_detected: bool,
+    recovery_eligible: bool,
+    recovery_action: []const u8,
     install_count: usize,
     start_count: usize,
     stop_count: usize,
@@ -131,6 +133,13 @@ pub const ServiceManager = struct {
             .restart_budget_remaining = self.restart_budget_remaining,
             .restart_budget_exhausted = self.restart_budget_remaining == 0,
             .stale_process_detected = self.stale_process_detected,
+            .recovery_eligible = self.stale_process_detected and self.restart_budget_remaining > 0,
+            .recovery_action = if (self.stale_process_detected and self.restart_budget_remaining > 0)
+                "restart"
+            else if (self.stale_process_detected)
+                "blocked"
+            else
+                "none",
             .install_count = self.install_count,
             .start_count = self.start_count,
             .stop_count = self.stop_count,
@@ -229,4 +238,26 @@ test "service manager can mark stale background process" {
     try std.testing.expect(service.status().stale_process_detected);
     try std.testing.expect(service.status().pid == null);
     try std.testing.expect(!service.status().lock_held);
+    try std.testing.expect(service.status().recovery_eligible);
+    try std.testing.expectEqualStrings("restart", service.status().recovery_action);
+}
+
+test "service manager projects blocked recovery when stale and budget exhausted" {
+    var gateway_host = try @import("gateway_host.zig").GatewayHost.init(std.testing.allocator, "127.0.0.1", 8080);
+    defer gateway_host.deinit();
+    var hb = @import("heartbeat.zig").Heartbeat.init();
+    var scheduler = @import("cron.zig").CronScheduler.init(std.testing.allocator);
+    defer scheduler.deinit();
+    var host = runtime_host.RuntimeHost.init(&gateway_host, &hb, &scheduler);
+    var service = ServiceManager.init(&host);
+
+    try std.testing.expect(service.start());
+    _ = service.restart();
+    _ = service.restart();
+    _ = service.restart();
+    service.markStaleProcess();
+
+    try std.testing.expect(service.status().stale_process_detected);
+    try std.testing.expect(!service.status().recovery_eligible);
+    try std.testing.expectEqualStrings("blocked", service.status().recovery_action);
 }
