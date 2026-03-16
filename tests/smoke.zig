@@ -1372,6 +1372,8 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"daemonProjected\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"changed\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"autostart\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"action\":\"install\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"restartBudgetRemaining\":") != null);
 
     const install_again = try dispatcher.dispatch(.{ .request_id = "req_service_install_again", .method = "service.install", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (install_again.result.?) {
@@ -1390,6 +1392,8 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(start.ok);
     try std.testing.expect(std.mem.indexOf(u8, start.result.?.success_json, "\"changed\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, start.result.?.success_json, "\"lockHeld\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, start.result.?.success_json, "\"action\":\"start\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, start.result.?.success_json, "\"hostRunning\":true") != null);
 
     const start_again = try dispatcher.dispatch(.{ .request_id = "req_service_start_again", .method = "service.start", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (start_again.result.?) {
@@ -1418,6 +1422,8 @@ test "service and gateway control commands mutate runtime state" {
     };
     try std.testing.expect(stop.ok);
     try std.testing.expect(std.mem.indexOf(u8, stop.result.?.success_json, "\"changed\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stop.result.?.success_json, "\"action\":\"stop\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stop.result.?.success_json, "\"hostRunning\":false") != null);
 
     const stop_again = try dispatcher.dispatch(.{ .request_id = "req_service_stop_again", .method = "service.stop", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (stop_again.result.?) {
@@ -1437,6 +1443,8 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"restartCount\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"startApplied\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"restartBudgetRemaining\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"action\":\"restart\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, restart.result.?.success_json, "\"gatewayHandlerAttached\":") != null);
 
     const gateway_status = try dispatcher.dispatch(.{ .request_id = "req_gateway_status", .method = "gateway.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_status.result.?) {
