@@ -93,6 +93,7 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         var with_tool: ?[]const u8 = null;
         var with_tool_input: ?[]const u8 = null;
         var with_provider: ?[]const u8 = null;
+        var with_last_event_id: ?[]const u8 = null;
         var with_limit: ?i64 = null;
         var index: usize = 3;
         while (index < args.len) : (index += 1) {
@@ -106,6 +107,12 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
                 index += 1;
                 if (index >= args.len) return error.MissingLogLevel;
                 with_limit = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--last-event-id")) {
+                index += 1;
+                if (index >= args.len) return error.MissingLastEventId;
+                with_last_event_id = args[index];
                 continue;
             }
             if (std.mem.eql(u8, args[index], "--tool")) {
@@ -122,7 +129,7 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
             }
         }
 
-        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0) + @as(usize, if (with_limit != null) 1 else 0);
+        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0) + @as(usize, if (with_limit != null) 1 else 0) + @as(usize, if (with_last_event_id != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         var param_index: usize = 0;
         params[param_index] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
@@ -143,6 +150,10 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         }
         if (with_limit) |limit| {
             params[param_index] = .{ .key = "limit", .value = .{ .integer = limit } };
+            param_index += 1;
+        }
+        if (with_last_event_id) |last_event_id| {
+            params[param_index] = .{ .key = "last_event_id", .value = .{ .string = try allocator.dupe(u8, last_event_id) } };
         }
 
         return .{
@@ -949,4 +960,47 @@ test "cli live stream exposes text delta throttle overrides" {
     const delta_count = countOccurrences(output, "\"event\":\"text.delta\"");
     try std.testing.expect(delta_count >= 4);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"event\":\"done\"") != null);
+}
+
+test "cli live stream supports replay from last event id" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_cli_resume",
+        .label = "Mock OpenAI CLI Resume",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    var seeded = try app.agent_runtime.runStream(.{
+        .session_id = "sess_cli_resume",
+        .prompt = "CALL_TOOL:echo",
+        .provider_id = "mock_openai_cli_resume",
+        .authority = .admin,
+    });
+    defer seeded.deinit(std.testing.allocator);
+
+    var sink = stream_sink.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+
+    try streamLive(std.testing.allocator, app, &.{
+        "agent.stream",
+        "sess_cli_resume",
+        "ignored on replay",
+        "--provider",
+        "mock_openai_cli_resume",
+        "--last-event-id",
+        "1",
+        "--live",
+    }, sink.asByteSink());
+
+    const output = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"resumeMode\":\"replay_only\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"reconnect_replay_completed\"") != null);
 }
