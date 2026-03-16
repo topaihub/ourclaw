@@ -239,7 +239,8 @@ pub const AgentRuntime = struct {
                 .response_mode = request.response_mode,
                 .session_event_count = prompt_snapshot.event_count,
                 .tool_trace_count = prompt_snapshot.tool_trace_count,
-                .recall_summary = if (recall.entry_count > 0) recall.summary_text else null,
+                .compacted_summary = prompt_snapshot.latest_summary_text,
+                .recall_summary = if (std.mem.trim(u8, recall.summary_text, " \r\n\t").len > 0) recall.summary_text else null,
                 .tool_result_json = tool_result_json,
                 .allow_provider_tools = provider_tools_enabled,
                 .tool_registry = self.tool_orchestrator.tool_registry,
@@ -379,7 +380,7 @@ pub const AgentRuntime = struct {
         } else {
             try turn_writer.writeAll("null");
         }
-        try turn_writer.print(",\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d},\"promptTokens\":", .{ tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count });
+        try turn_writer.print(",\"toolRounds\":{d},\"maxToolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d},\"promptTokens\":", .{ tool_rounds, request.max_tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count });
         if (prompt_tokens) |value| {
             try turn_writer.print("{d}", .{value});
         } else {
@@ -1142,6 +1143,56 @@ test "agent runtime injects system and tools prompt into provider payload" {
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expectEqualStrings("prompt assembly ok", result.response_text);
+}
+
+test "agent runtime prefers compacted summary before recent recall" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_prompt_summary_first",
+        .label = "Mock OpenAI Prompt Summary First",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    var first_result = try runtime.run(.{
+        .session_id = "sess_prompt_summary_first",
+        .prompt = "hello first turn",
+        .provider_id = "mock_openai_prompt_summary_first",
+    });
+    defer first_result.deinit(std.testing.allocator);
+    var compaction = try memory.compactSession(std.testing.allocator, "sess_prompt_summary_first", 1);
+    defer compaction.deinit(std.testing.allocator);
+    try session_store.appendEvent("sess_prompt_summary_first", "session.summary", compaction.summary.summary_text);
+
+    var result = try runtime.run(.{
+        .session_id = "sess_prompt_summary_first",
+        .prompt = "PROMPT_ASSEMBLY_PROBE",
+        .provider_id = "mock_openai_prompt_summary_first",
+    });
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("prompt assembly summary-first ok", result.response_text);
 }
 
 fn hasEventKind(events: []const session_state.SessionEvent, kind: []const u8) bool {
