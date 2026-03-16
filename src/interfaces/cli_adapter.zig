@@ -40,6 +40,10 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         var with_tool: ?[]const u8 = null;
         var with_tool_input: ?[]const u8 = null;
         var with_provider: ?[]const u8 = null;
+        var with_prompt_profile: ?[]const u8 = null;
+        var with_response_mode: ?[]const u8 = null;
+        var with_max_tool_rounds: ?i64 = null;
+        var with_allow_provider_tools: ?bool = null;
         var index: usize = 3;
         while (index < args.len) : (index += 1) {
             if (std.mem.eql(u8, args[index], "--provider")) {
@@ -60,9 +64,31 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
                 with_tool_input = args[index];
                 continue;
             }
+            if (std.mem.eql(u8, args[index], "--prompt-profile")) {
+                index += 1;
+                if (index >= args.len) return error.MissingPromptProfile;
+                with_prompt_profile = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--response-mode")) {
+                index += 1;
+                if (index >= args.len) return error.MissingResponseMode;
+                with_response_mode = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--max-tool-rounds")) {
+                index += 1;
+                if (index >= args.len) return error.MissingMaxToolRounds;
+                with_max_tool_rounds = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--no-provider-tools")) {
+                with_allow_provider_tools = false;
+                continue;
+            }
         }
 
-        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0);
+        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0) + @as(usize, if (with_prompt_profile != null) 1 else 0) + @as(usize, if (with_response_mode != null) 1 else 0) + @as(usize, if (with_max_tool_rounds != null) 1 else 0) + @as(usize, if (with_allow_provider_tools != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         var param_index: usize = 0;
         params[param_index] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
@@ -79,6 +105,22 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         }
         if (with_tool_input) |tool_input| {
             params[param_index] = .{ .key = "tool_input_json", .value = .{ .string = try allocator.dupe(u8, tool_input) } };
+            param_index += 1;
+        }
+        if (with_prompt_profile) |prompt_profile| {
+            params[param_index] = .{ .key = "prompt_profile", .value = .{ .string = try allocator.dupe(u8, prompt_profile) } };
+            param_index += 1;
+        }
+        if (with_response_mode) |response_mode| {
+            params[param_index] = .{ .key = "response_mode", .value = .{ .string = try allocator.dupe(u8, response_mode) } };
+            param_index += 1;
+        }
+        if (with_max_tool_rounds) |max_tool_rounds| {
+            params[param_index] = .{ .key = "max_tool_rounds", .value = .{ .integer = max_tool_rounds } };
+            param_index += 1;
+        }
+        if (with_allow_provider_tools) |allow_provider_tools| {
+            params[param_index] = .{ .key = "allow_provider_tools", .value = .{ .boolean = allow_provider_tools } };
         }
 
         return .{
@@ -94,6 +136,10 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         var with_tool_input: ?[]const u8 = null;
         var with_provider: ?[]const u8 = null;
         var with_last_event_id: ?[]const u8 = null;
+        var with_prompt_profile: ?[]const u8 = null;
+        var with_response_mode: ?[]const u8 = null;
+        var with_max_tool_rounds: ?i64 = null;
+        var with_allow_provider_tools: ?bool = null;
         var with_limit: ?i64 = null;
         var index: usize = 3;
         while (index < args.len) : (index += 1) {
@@ -115,6 +161,28 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
                 with_last_event_id = args[index];
                 continue;
             }
+            if (std.mem.eql(u8, args[index], "--prompt-profile")) {
+                index += 1;
+                if (index >= args.len) return error.MissingPromptProfile;
+                with_prompt_profile = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--response-mode")) {
+                index += 1;
+                if (index >= args.len) return error.MissingResponseMode;
+                with_response_mode = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--max-tool-rounds")) {
+                index += 1;
+                if (index >= args.len) return error.MissingMaxToolRounds;
+                with_max_tool_rounds = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--no-provider-tools")) {
+                with_allow_provider_tools = false;
+                continue;
+            }
             if (std.mem.eql(u8, args[index], "--tool")) {
                 index += 1;
                 if (index >= args.len) return error.MissingToolId;
@@ -129,7 +197,7 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
             }
         }
 
-        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0) + @as(usize, if (with_limit != null) 1 else 0) + @as(usize, if (with_last_event_id != null) 1 else 0);
+        const count: usize = 2 + @as(usize, if (with_provider != null) 1 else 0) + @as(usize, if (with_tool != null) 1 else 0) + @as(usize, if (with_tool_input != null) 1 else 0) + @as(usize, if (with_limit != null) 1 else 0) + @as(usize, if (with_last_event_id != null) 1 else 0) + @as(usize, if (with_prompt_profile != null) 1 else 0) + @as(usize, if (with_response_mode != null) 1 else 0) + @as(usize, if (with_max_tool_rounds != null) 1 else 0) + @as(usize, if (with_allow_provider_tools != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         var param_index: usize = 0;
         params[param_index] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
@@ -154,6 +222,22 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         }
         if (with_last_event_id) |last_event_id| {
             params[param_index] = .{ .key = "last_event_id", .value = .{ .string = try allocator.dupe(u8, last_event_id) } };
+            param_index += 1;
+        }
+        if (with_prompt_profile) |prompt_profile| {
+            params[param_index] = .{ .key = "prompt_profile", .value = .{ .string = try allocator.dupe(u8, prompt_profile) } };
+            param_index += 1;
+        }
+        if (with_response_mode) |response_mode| {
+            params[param_index] = .{ .key = "response_mode", .value = .{ .string = try allocator.dupe(u8, response_mode) } };
+            param_index += 1;
+        }
+        if (with_max_tool_rounds) |max_tool_rounds| {
+            params[param_index] = .{ .key = "max_tool_rounds", .value = .{ .integer = max_tool_rounds } };
+            param_index += 1;
+        }
+        if (with_allow_provider_tools) |allow_provider_tools| {
+            params[param_index] = .{ .key = "allow_provider_tools", .value = .{ .boolean = allow_provider_tools } };
         }
 
         return .{
@@ -1003,4 +1087,71 @@ test "cli live stream supports replay from last event id" {
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"resumeMode\":\"replay_only\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"reconnect_replay_completed\"") != null);
+}
+
+test "cli adapter parses agent strategy flags" {
+    var owned_run = try parseArgs(std.testing.allocator, &.{
+        "agent.run",
+        "sess_cli_agent_flags",
+        "hello",
+        "--provider",
+        "mock_openai",
+        "--prompt-profile",
+        "concise_operator",
+        "--response-mode",
+        "terse",
+        "--max-tool-rounds",
+        "2",
+        "--no-provider-tools",
+    });
+    defer owned_run.deinit();
+    try std.testing.expect(extractStringParam(owned_run.params, "prompt_profile") != null);
+    try std.testing.expect(extractStringParam(owned_run.params, "response_mode") != null);
+    try std.testing.expect(extractStringParam(owned_run.params, "provider_id") != null);
+
+    var saw_max_tool_rounds = false;
+    var saw_allow_provider_tools = false;
+    for (owned_run.params) |field| {
+        if (std.mem.eql(u8, field.key, "max_tool_rounds")) {
+            saw_max_tool_rounds = true;
+            try std.testing.expectEqual(@as(i64, 2), field.value.integer);
+        }
+        if (std.mem.eql(u8, field.key, "allow_provider_tools")) {
+            saw_allow_provider_tools = true;
+            try std.testing.expectEqual(false, field.value.boolean);
+        }
+    }
+    try std.testing.expect(saw_max_tool_rounds);
+    try std.testing.expect(saw_allow_provider_tools);
+
+    var owned_stream = try parseArgs(std.testing.allocator, &.{
+        "agent.stream",
+        "sess_cli_stream_flags",
+        "hello",
+        "--provider",
+        "mock_openai",
+        "--prompt-profile",
+        "concise_operator",
+        "--response-mode",
+        "terse",
+        "--max-tool-rounds",
+        "3",
+        "--no-provider-tools",
+    });
+    defer owned_stream.deinit();
+
+    var saw_stream_max_tool_rounds = false;
+    var saw_stream_allow_provider_tools = false;
+    for (owned_stream.params) |field| {
+        if (std.mem.eql(u8, field.key, "max_tool_rounds")) {
+            saw_stream_max_tool_rounds = true;
+            try std.testing.expectEqual(@as(i64, 3), field.value.integer);
+        }
+        if (std.mem.eql(u8, field.key, "allow_provider_tools")) {
+            saw_stream_allow_provider_tools = true;
+            try std.testing.expectEqual(false, field.value.boolean);
+        }
+    }
+    try std.testing.expect(saw_stream_max_tool_rounds);
+    try std.testing.expect(saw_stream_allow_provider_tools);
 }
