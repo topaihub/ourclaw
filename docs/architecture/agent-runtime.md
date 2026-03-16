@@ -1,5 +1,14 @@
 # ourclaw Agent Runtime 详细设计
 
+> 使用说明（2026-03-16）：本文档是 agent runtime 的 supporting design，不再作为默认执行入口。
+>
+> 当前应优先参考：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+>
+> 本文中的不少“完整业务版建议”已经部分落地；阅读时应区分“已实现第一版”与“后续深化目标”。
+
 ## 1. 目标与范围
 
 本文档定义 `ourclaw` 面向完整业务版的 agent runtime 主链路，目标是把当前已经存在的共享运行时骨架、最小命令域、最小 session/stream/tool orchestration，继续收口成一个真正可执行的 agent 系统。
@@ -13,7 +22,7 @@
 - 同步/异步命令与 agent loop 的关系
 - 故障、取消、超时与恢复策略
 
-> 当前已落实现入口主要在 `framework/src/runtime/app_context.zig`、`framework/src/app/command_dispatcher.zig`、`framework/src/runtime/task_runner.zig`、`ourclaw/src/runtime/app_context.zig`、`ourclaw/src/domain/session_state.zig`、`ourclaw/src/domain/stream_output.zig`、`ourclaw/src/domain/tool_orchestrator.zig`。截至 2026-03-11，这些实现还只是第一版骨架，不等于完整 agent runtime。
+> 当前已落实现入口主要在 `framework/src/runtime/app_context.zig`、`framework/src/app/command_dispatcher.zig`、`framework/src/runtime/task_runner.zig`、`ourclaw/src/runtime/app_context.zig`、`ourclaw/src/domain/session_state.zig`、`ourclaw/src/domain/stream_output.zig`、`ourclaw/src/domain/tool_orchestrator.zig`、`ourclaw/src/domain/agent_runtime.zig`。截至 2026-03-16，这些实现已经不只是“第一版骨架”，而是 phase-1 之后可继续深化的主线基线。
 
 ## 2. 设计目标
 
@@ -49,8 +58,8 @@
 当前状态：
 
 - `framework/src/runtime/app_context.zig` 已装配共享运行时依赖
-- `ourclaw/src/runtime/app_context.zig` 已装配业务 registry、session、stream、tool orchestrator 与最小命令域
-- 尚未装配 memory runtime、真实 provider/channel/tool 实现、长期运行 host
+- `ourclaw/src/runtime/app_context.zig` 已装配业务 registry、session、stream、tool orchestrator、memory、service/runtime host 与扩展子域第一版
+- 当前更准确的语义是“主线第一版已落地，后续继续深化”，而不是“尚未装配”
 
 ### 3.2 RequestContext
 

@@ -1,8 +1,15 @@
-# ourclaw 与未来 ourclaw-manager 的复用分层设计
+# ourclaw 与 ourclaw-manager 的复用分层设计
+
+> 使用说明（2026-03-16）：本文档是 manager 方向的 supporting doc，不再作为默认任务入口。
+>
+> 当前应优先参考：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/contracts/manager-runtime-surface.md`
 
 ## 1. 背景
 
-未来的 `ourclaw-manager` 会承担与 `nullclaw-manager` 类似的职责：
+当前的 `ourclaw-manager` 已经不是纯骨架，已具备一版 `runtime_client + typed contract + view model typed consumption` 基线。它会继续承担与 `nullclaw-manager` 类似的职责：
 
 - 帮助用户配置 `ourclaw`
 - 展示诊断、日志、状态和风险提示
@@ -22,12 +29,12 @@
 
 ### 2.1 代码级复用
 
-未来 `ourclaw-manager` 可以直接复用 `ourclaw` 中这些稳定模块：
+在当前主线里，`ourclaw-manager` 可以直接复用或稳定消费这些层：
 
-- `core`
-- `contracts`
-- `config` 中的元数据与纯逻辑部分
-- 面向 manager 的稳定 SDK/facade
+- `framework` 中的共享 contracts / runtime 基座
+- `ourclaw/docs/contracts/*` 中定义的稳定契约
+- `ourclaw/src/config` 中的元数据与纯逻辑部分
+- `ourclaw-manager/src/runtime_client/*` 形成的 typed consumption facade
 
 这些模块应尽量做到：
 
@@ -68,7 +75,7 @@
 
 ## 4. 推荐分层
 
-建议把 `ourclaw/src` 未来稳定拆成以下几层：
+基于当前已落地主线，建议把长期复用边界理解成以下几层：
 
 ```text
 L0  core/            横切基础能力，可直接复用
