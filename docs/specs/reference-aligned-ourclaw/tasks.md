@@ -111,11 +111,15 @@
 
 ### Wave D — 流协议与入口适配统一
 
-- [ ] **D1. 深化 SSE / WS / bridge / CLI live 控制语义**
+- [x] **D1. 深化 SSE / WS / bridge / CLI live 控制语义**
   - 主线落点：`ourclaw/src/interfaces/stream_projection.zig`、`stream_websocket.zig`、`cli_adapter.zig`
   - 参考：nullclaw streaming 与 openclaw gateway live 语义
   - 验证：projection tests + smoke
   - 完成定义：ack / pause / resume / backpressure / disconnect / reconnect 更一致
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：WebSocket `control.close` 现已优先回显客户端最新 `ackedSeq`，`ack` 不再只是被动记录
+    - 已完成第二子步：CLI live 已补 `--last-event-id`，能够复用既有 `replay_only` / execution-cursor resume 语义
+    - 完成判断：SSE / WS / bridge / CLI 当前已形成更一致的 live control 语义；更细的参数面对齐转入 D2 处理
 
 - [ ] **D2. 完成 CLI / HTTP / bridge 命令参数面对齐**
   - 主线落点：`ourclaw/src/interfaces/*`

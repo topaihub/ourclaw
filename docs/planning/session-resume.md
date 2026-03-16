@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **D1 已完成（2026-03-16）**：
+  - WebSocket `ack` 已真正进入 close 控制语义，`control.close` 会优先回显客户端已 ack 的进度
+  - CLI live 已补 `--last-event-id`，开始复用现有 replay/resume 语义
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（182/182）
+
 - **C3 已完成（2026-03-16）**：
   - `config.migrate_apply` / `config.compat_import` apply 返回面已具备更完整治理摘要
   - `config_runtime_hooks` 已真正消费 `gateway.require_pairing` / `runtime.max_tool_rounds`
