@@ -24,6 +24,7 @@ pub const memory_summary = @import("memory_summary.zig");
 pub const session_get = @import("session_get.zig");
 pub const session_compact = @import("session_compact.zig");
 pub const memory_snapshot_export = @import("memory_snapshot_export.zig");
+pub const memory_snapshot_import = @import("memory_snapshot_import.zig");
 pub const memory_retrieve = @import("memory_retrieve.zig");
 pub const memory_migrate_preview = @import("memory_migrate_preview.zig");
 pub const memory_migrate_apply = @import("memory_migrate_apply.zig");
@@ -86,6 +87,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(session_get.definition(command_services));
     try registry.register(session_compact.definition(command_services));
     try registry.register(memory_snapshot_export.definition(command_services));
+    try registry.register(memory_snapshot_import.definition(command_services));
     try registry.register(memory_retrieve.definition(command_services));
     try registry.register(memory_migrate_preview.definition(command_services));
     try registry.register(memory_migrate_apply.definition(command_services));
