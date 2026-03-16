@@ -6,10 +6,11 @@ pub fn buildServiceSnapshotJson(allocator: std.mem.Allocator, app: *const app_co
     const daemon_status = app.daemon.status();
     const gateway_status = app.gateway_host.status();
     const host_status = app.runtime_host.status();
+    const heartbeat_status = app.heartbeat.snapshot();
 
     return std.fmt.allocPrint(
         allocator,
-        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d},\"lastTransitionMs\":{?}{s}}}",
+        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"heartbeatHealthy\":{s},\"heartbeatAgeMs\":{?},\"heartbeatStaleAfterMs\":{d},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d},\"lastTransitionMs\":{?}{s}}}",
         .{
             service_status.state.asText(),
             if (service_status.installed) "true" else "false",
@@ -21,6 +22,9 @@ pub fn buildServiceSnapshotJson(allocator: std.mem.Allocator, app: *const app_co
             daemon_status.restart_budget_remaining,
             if (daemon_status.restart_budget_exhausted) "true" else "false",
             if (daemon_status.stale_process_detected) "true" else "false",
+            if (heartbeat_status.healthy) "true" else "false",
+            heartbeat_status.age_ms,
+            heartbeat_status.stale_after_ms,
             if (gateway_status.running) "true" else "false",
             if (host_status.running) "true" else "false",
             if (host_status.loop_active) "true" else "false",

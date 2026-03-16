@@ -1374,6 +1374,7 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"autostart\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"action\":\"install\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"restartBudgetRemaining\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, install.result.?.success_json, "\"heartbeatHealthy\":") != null);
 
     const install_again = try dispatcher.dispatch(.{ .request_id = "req_service_install_again", .method = "service.install", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (install_again.result.?) {
@@ -1414,6 +1415,8 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"installCount\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"autostart\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"restartBudgetRemaining\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"heartbeatHealthy\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, service_status.result.?.success_json, "\"heartbeatStaleAfterMs\":") != null);
 
     const stop = try dispatcher.dispatch(.{ .request_id = "req_service_stop", .method = "service.stop", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (stop.result.?) {
