@@ -23,5 +23,26 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const max_items: usize = if (ctx.param("max_items")) |field| @intCast(field.value.integer) else 8;
     var summary = try services.memory_runtime.summarizeSession(ctx.allocator, session_id, max_items);
     defer summary.deinit(ctx.allocator);
-    return std.fmt.allocPrint(ctx.allocator, "{{\"sessionId\":\"{s}\",\"sourceCount\":{d},\"summaryText\":\"{s}\"}}", .{ summary.session_id, summary.source_count, summary.summary_text });
+    const summary_text_json = try jsonString(ctx.allocator, summary.summary_text);
+    defer ctx.allocator.free(summary_text_json);
+    return std.fmt.allocPrint(ctx.allocator, "{{\"sessionId\":\"{s}\",\"sourceCount\":{d},\"summaryText\":{s}}}", .{ summary.session_id, summary.source_count, summary_text_json });
+}
+
+fn jsonString(allocator: std.mem.Allocator, value: []const u8) anyerror![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    const writer = buf.writer(allocator);
+    try writer.writeByte('"');
+    for (value) |ch| {
+        switch (ch) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(ch),
+        }
+    }
+    try writer.writeByte('"');
+    return allocator.dupe(u8, buf.items);
 }

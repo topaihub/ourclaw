@@ -49,6 +49,24 @@ pub const MigrationPreview = struct {
     changed: bool,
 };
 
+pub const SnapshotImportResult = struct {
+    imported_count: usize,
+    rejected_count: usize,
+    source_version: u32,
+    resulting_count: usize,
+};
+
+pub const CompactionResult = struct {
+    summary: SessionSummary,
+    removed_count: usize,
+    kept_count: usize,
+    result_entry_count: usize,
+
+    pub fn deinit(self: *CompactionResult, allocator: std.mem.Allocator) void {
+        self.summary.deinit(allocator);
+    }
+};
+
 pub const MemoryRecall = struct {
     session_id: []u8,
     summary_text: []u8,
@@ -125,19 +143,21 @@ pub const MemoryRuntime = struct {
     }
 
     pub fn appendUserPrompt(self: *Self, session_id: []const u8, prompt: []const u8) anyerror!void {
-        const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{prompt});
+        const payload = try buildTextPayload(self.allocator, prompt);
         defer self.allocator.free(payload);
         try self.appendEntry(session_id, "user_prompt", payload);
     }
 
     pub fn appendToolResult(self: *Self, session_id: []const u8, tool_id: []const u8, result_json: []const u8) anyerror!void {
-        const payload = try std.fmt.allocPrint(self.allocator, "{{\"toolId\":\"{s}\",\"result\":{s}}}", .{ tool_id, result_json });
+        const tool_id_json = try jsonString(self.allocator, tool_id);
+        defer self.allocator.free(tool_id_json);
+        const payload = try std.fmt.allocPrint(self.allocator, "{{\"toolId\":{s},\"result\":{s}}}", .{ tool_id_json, result_json });
         defer self.allocator.free(payload);
         try self.appendEntry(session_id, "tool_result", payload);
     }
 
     pub fn appendAssistantResponse(self: *Self, session_id: []const u8, response_text: []const u8) anyerror!void {
-        const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{response_text});
+        const payload = try buildTextPayload(self.allocator, response_text);
         defer self.allocator.free(payload);
         try self.appendEntry(session_id, "assistant_response", payload);
     }
@@ -266,11 +286,12 @@ pub const MemoryRuntime = struct {
         return result;
     }
 
-    pub fn compactSession(self: *Self, allocator: std.mem.Allocator, session_id: []const u8, keep_last: usize) anyerror!SessionSummary {
+    pub fn compactSession(self: *Self, allocator: std.mem.Allocator, session_id: []const u8, keep_last: usize) anyerror!CompactionResult {
         var summary = try self.summarizeSession(allocator, session_id, 8);
         errdefer summary.deinit(allocator);
 
         var kept: usize = 0;
+        var removed_count: usize = 0;
         var index = self.entries.items.len;
         while (index > 0) {
             index -= 1;
@@ -281,11 +302,19 @@ pub const MemoryRuntime = struct {
             if (kept > keep_last) {
                 var removed = self.entries.orderedRemove(index);
                 removed.deinit(self.allocator);
+                removed_count += 1;
             }
         }
 
-        try self.appendEntry(session_id, "session_summary", summary.summary_text);
-        return summary;
+        const payload = try buildSummaryPayload(self.allocator, summary.summary_text, summary.source_count);
+        defer self.allocator.free(payload);
+        try self.appendEntry(session_id, "session_summary", payload);
+        return .{
+            .summary = summary,
+            .removed_count = removed_count,
+            .kept_count = @min(keep_last, kept),
+            .result_entry_count = self.countBySession(session_id),
+        };
     }
 
     fn appendEntry(self: *Self, session_id: []const u8, kind: []const u8, content_json: []const u8) anyerror!void {
@@ -335,6 +364,117 @@ pub const MemoryRuntime = struct {
             return replaceVersionOne(allocator, snapshot_json);
         }
         return std.fmt.allocPrint(allocator, "{{\"version\":2,\"legacy\":{s}}}", .{snapshot_json});
+    }
+
+    pub fn importSnapshotJson(self: *Self, allocator: std.mem.Allocator, snapshot_json: []const u8) anyerror!SnapshotImportResult {
+        const migrated = try self.migrateSnapshotJson(allocator, snapshot_json);
+        defer allocator.free(migrated);
+
+        const source_version: u32 = if (std.mem.indexOf(u8, snapshot_json, "\"version\":2") != null) 2 else 1;
+        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, migrated, .{});
+        defer parsed.deinit();
+        var imported_count: usize = 0;
+        var rejected_count: usize = 0;
+
+        if (parsed.value != .object) {
+            return .{
+                .imported_count = 0,
+                .rejected_count = 1,
+                .source_version = source_version,
+                .resulting_count = self.count(),
+            };
+        }
+
+        const entries_value = parsed.value.object.get("entries") orelse {
+            return .{
+                .imported_count = 0,
+                .rejected_count = 1,
+                .source_version = source_version,
+                .resulting_count = self.count(),
+            };
+        };
+        if (entries_value != .array) {
+            return .{
+                .imported_count = 0,
+                .rejected_count = 1,
+                .source_version = source_version,
+                .resulting_count = self.count(),
+            };
+        }
+
+        for (entries_value.array.items) |entry_value| {
+            if (entry_value != .object) {
+                rejected_count += 1;
+                continue;
+            }
+
+            const session_id_value = entry_value.object.get("sessionId") orelse {
+                rejected_count += 1;
+                continue;
+            };
+            const kind_value = entry_value.object.get("kind") orelse {
+                rejected_count += 1;
+                continue;
+            };
+            const content_value = entry_value.object.get("content") orelse {
+                rejected_count += 1;
+                continue;
+            };
+
+            if (session_id_value != .string or kind_value != .string) {
+                rejected_count += 1;
+                continue;
+            }
+
+            const content = try stringifyJsonValue(allocator, content_value);
+            defer allocator.free(content);
+
+            const ts_unix_ms = if (entry_value.object.get("tsUnixMs")) |value|
+                switch (value) {
+                    .integer => @as(i64, @intCast(value.integer)),
+                    else => null,
+                }
+            else
+                null;
+
+            const embedding_provider = if (entry_value.object.get("embeddingProvider")) |value|
+                switch (value) {
+                    .string => value.string,
+                    else => null,
+                }
+            else
+                null;
+
+            const embedding_model = if (entry_value.object.get("embeddingModel")) |value|
+                switch (value) {
+                    .string => value.string,
+                    else => null,
+                }
+            else
+                null;
+
+            try self.appendEntry(session_id_value.string, kind_value.string, content);
+            if (self.entries.items.len > 0) {
+                const imported_entry = &self.entries.items[self.entries.items.len - 1];
+                if (ts_unix_ms) |value| imported_entry.ts_unix_ms = value;
+                if (embedding_provider) |value| {
+                    if (imported_entry.embedding_provider) |owned| self.allocator.free(owned);
+                    imported_entry.embedding_provider = try self.allocator.dupe(u8, value);
+                }
+                if (embedding_model) |value| {
+                    if (imported_entry.embedding_model) |owned| self.allocator.free(owned);
+                    imported_entry.embedding_model = try self.allocator.dupe(u8, value);
+                }
+            }
+            imported_count += 1;
+        }
+
+        return .{
+            .imported_count = imported_count,
+            .rejected_count = rejected_count,
+            .source_version = source_version,
+            .resulting_count = self.count(),
+        };
     }
 };
 
@@ -491,6 +631,103 @@ fn countKeywordOverlap(haystack: []const u8, query: []const u8) usize {
     return total;
 }
 
+fn buildTextPayload(allocator: std.mem.Allocator, text: []const u8) anyerror![]u8 {
+    const text_json = try jsonString(allocator, text);
+    defer allocator.free(text_json);
+    return std.fmt.allocPrint(allocator, "{{\"text\":{s}}}", .{text_json});
+}
+
+fn buildSummaryPayload(allocator: std.mem.Allocator, text: []const u8, source_count: usize) anyerror![]u8 {
+    const text_json = try jsonString(allocator, text);
+    defer allocator.free(text_json);
+    return std.fmt.allocPrint(allocator, "{{\"text\":{s},\"sourceCount\":{d}}}", .{ text_json, source_count });
+}
+
+fn jsonString(allocator: std.mem.Allocator, value: []const u8) anyerror![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    const writer = buf.writer(allocator);
+    try writer.writeByte('"');
+    for (value) |ch| {
+        switch (ch) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (ch < 32) {
+                    try writer.print("\\u00{x:0>2}", .{ch});
+                } else {
+                    try writer.writeByte(ch);
+                }
+            },
+        }
+    }
+    try writer.writeByte('"');
+    return allocator.dupe(u8, buf.items);
+}
+
+fn stringifyJsonValue(allocator: std.mem.Allocator, value: std.json.Value) anyerror![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    try writeJsonValue(buf.writer(allocator), value);
+    return allocator.dupe(u8, buf.items);
+}
+
+fn writeJsonValue(writer: anytype, value: std.json.Value) anyerror!void {
+    switch (value) {
+        .null => try writer.writeAll("null"),
+        .bool => |inner| try writer.writeAll(if (inner) "true" else "false"),
+        .integer => |inner| try writer.print("{d}", .{inner}),
+        .float => |inner| try writer.print("{d}", .{inner}),
+        .number_string => |inner| try writer.writeAll(inner),
+        .string => |inner| try writeJsonStringTo(writer, inner),
+        .array => |inner| {
+            try writer.writeByte('[');
+            for (inner.items, 0..) |item, index| {
+                if (index > 0) try writer.writeByte(',');
+                try writeJsonValue(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+        .object => |inner| {
+            try writer.writeByte('{');
+            var it = inner.iterator();
+            var index: usize = 0;
+            while (it.next()) |entry| {
+                if (index > 0) try writer.writeByte(',');
+                try writeJsonStringTo(writer, entry.key_ptr.*);
+                try writer.writeByte(':');
+                try writeJsonValue(writer, entry.value_ptr.*);
+                index += 1;
+            }
+            try writer.writeByte('}');
+        },
+    }
+}
+
+fn writeJsonStringTo(writer: anytype, value: []const u8) anyerror!void {
+    try writer.writeByte('"');
+    for (value) |ch| {
+        switch (ch) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (ch < 32) {
+                    try writer.print("\\u00{x:0>2}", .{ch});
+                } else {
+                    try writer.writeByte(ch);
+                }
+            },
+        }
+    }
+    try writer.writeByte('"');
+}
+
 fn replaceVersionOne(allocator: std.mem.Allocator, snapshot_json: []const u8) anyerror![]u8 {
     const needle = "\"version\":1";
     const replacement = "\"version\":2";
@@ -563,11 +800,13 @@ test "memory runtime retrieves and compacts session entries" {
     try std.testing.expectEqualStrings("local", hits[0].embedding_provider.?);
     try std.testing.expectEqualStrings("local-bow-v1", hits[0].embedding_model.?);
 
-    var summary = try runtime.compactSession(std.testing.allocator, "sess_02", 1);
-    defer summary.deinit(std.testing.allocator);
+    var result = try runtime.compactSession(std.testing.allocator, "sess_02", 1);
+    defer result.deinit(std.testing.allocator);
 
     try std.testing.expect(runtime.countBySession("sess_02") >= 2);
-    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "session sess_02") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.summary.summary_text, "session sess_02") != null);
+    try std.testing.expectEqual(@as(usize, 2), result.removed_count);
+    try std.testing.expectEqual(@as(usize, 1), result.kept_count);
 }
 
 test "memory runtime exports and migrates snapshot" {
@@ -587,6 +826,73 @@ test "memory runtime exports and migrates snapshot" {
     const migrated = try runtime.migrateSnapshotJson(std.testing.allocator, "{\"version\":1,\"entries\":[]}");
     defer std.testing.allocator.free(migrated);
     try std.testing.expect(std.mem.indexOf(u8, migrated, "\"version\":2") != null);
+}
+
+test "memory runtime imports migrated snapshot" {
+    var runtime = MemoryRuntime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try runtime.importSnapshotJson(std.testing.allocator, "{\"version\":2,\"entries\":[{\"sessionId\":\"sess_import\",\"kind\":\"user_prompt\",\"content\":{\"text\":\"hello\"}}]}");
+    try std.testing.expectEqual(@as(usize, 1), result.imported_count);
+    try std.testing.expectEqual(@as(usize, 0), result.rejected_count);
+    try std.testing.expectEqual(@as(usize, 1), runtime.countBySession("sess_import"));
+
+    var summary = try runtime.summarizeSession(std.testing.allocator, "sess_import", 8);
+    defer summary.deinit(std.testing.allocator);
+    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "sess_import") != null);
+
+    const hits = try runtime.retrieve(std.testing.allocator, "sess_import", "hello", 4);
+    defer {
+        for (hits) |*hit| hit.deinit(std.testing.allocator);
+        std.testing.allocator.free(hits);
+    }
+    try std.testing.expect(hits.len >= 1);
+}
+
+test "memory runtime snapshot roundtrip preserves summary and retrieval" {
+    var source = MemoryRuntime.init(std.testing.allocator);
+    defer source.deinit();
+    try source.setEmbeddingProvider("local");
+    try source.setEmbeddingModel("local-bow-v1");
+    try source.appendUserPrompt("sess_roundtrip", "hello \"roundtrip\" memory");
+    try source.appendToolResult("sess_roundtrip", "http_request", "{\"status\":200,\"body\":{\"nested\":true}}");
+    try source.appendAssistantResponse("sess_roundtrip", "roundtrip memory is ready");
+    var compaction = try source.compactSession(std.testing.allocator, "sess_roundtrip", 3);
+    defer compaction.deinit(std.testing.allocator);
+
+    const snapshot = try source.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+
+    var imported = MemoryRuntime.init(std.testing.allocator);
+    defer imported.deinit();
+    try imported.setEmbeddingProvider("local");
+    try imported.setEmbeddingModel("local-bow-v1");
+
+    const result = try imported.importSnapshotJson(std.testing.allocator, snapshot);
+    try std.testing.expectEqual(@as(usize, 4), result.imported_count);
+    try std.testing.expectEqual(@as(u32, 2), result.source_version);
+
+    var summary = try imported.summarizeSession(std.testing.allocator, "sess_roundtrip", 8);
+    defer summary.deinit(std.testing.allocator);
+    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "sess_roundtrip") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "roundtrip memory") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "session_summary") != null);
+
+    const hits = try imported.retrieve(std.testing.allocator, "sess_roundtrip", "roundtrip", 4);
+    defer {
+        for (hits) |*hit| hit.deinit(std.testing.allocator);
+        std.testing.allocator.free(hits);
+    }
+    try std.testing.expect(hits.len >= 1);
+    try std.testing.expect(hits[0].keyword_overlap >= 1);
+
+    const nested_hits = try imported.retrieve(std.testing.allocator, "sess_roundtrip", "nested", 4);
+    defer {
+        for (nested_hits) |*hit| hit.deinit(std.testing.allocator);
+        std.testing.allocator.free(nested_hits);
+    }
+    try std.testing.expect(nested_hits.len >= 1);
+    try std.testing.expect(std.mem.indexOf(u8, nested_hits[0].content_json, "nested") != null);
 }
 
 test "memory runtime retrieval ranking exposes rich metadata" {
