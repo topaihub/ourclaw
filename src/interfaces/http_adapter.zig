@@ -517,6 +517,45 @@ test "http adapter returns protocol envelope for missing route and websocket upg
     try std.testing.expect(std.mem.indexOf(u8, upgrade.body_json, "\"requestId\":\"http_req_upgrade_needed\"") != null);
 }
 
+test "http adapter exposes gateway control-plane routes" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var gateway_status = try handle(std.testing.allocator, app, .{
+        .request_id = "http_req_gateway_status",
+        .route = "/v1/gateway/status",
+        .params = &.{},
+        .authority = .admin,
+    });
+    defer gateway_status.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u16, 200), gateway_status.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.body_json, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.body_json, "\"healthState\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_status.body_json, "\"bindHost\":") != null);
+
+    var gateway_reload = try handle(std.testing.allocator, app, .{
+        .request_id = "http_req_gateway_reload",
+        .route = "/v1/gateway/reload",
+        .params = &.{},
+        .authority = .admin,
+    });
+    defer gateway_reload.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u16, 200), gateway_reload.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_reload.body_json, "\"action\":\"reload\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_reload.body_json, "\"healthMessage\":") != null);
+
+    var gateway_subscribe = try handle(std.testing.allocator, app, .{
+        .request_id = "http_req_gateway_subscribe",
+        .route = "/v1/gateway/stream-subscribe",
+        .params = &.{},
+        .authority = .admin,
+    });
+    defer gateway_subscribe.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u16, 200), gateway_subscribe.status_code);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_subscribe.body_json, "\"subscriptionId\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gateway_subscribe.body_json, "\"streamSubscriptions\":1") != null);
+}
+
 test "http adapter projects agent stream as sse" {
     var app = try runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
