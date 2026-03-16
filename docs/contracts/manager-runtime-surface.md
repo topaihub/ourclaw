@@ -223,6 +223,8 @@
 
 - `result`
 
+说明：`ourclaw-manager` 的 typed runtime client 不应把 `result` 纳入稳定 typed snapshot；如需显示或调试，应继续通过原始 JSON/result envelope 读取。
+
 ## 13. `observer.recent`
 
 ### stable
