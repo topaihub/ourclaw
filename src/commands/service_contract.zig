@@ -10,7 +10,7 @@ pub fn buildServiceSnapshotJson(allocator: std.mem.Allocator, app: *const app_co
 
     return std.fmt.allocPrint(
         allocator,
-        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"heartbeatHealthy\":{s},\"heartbeatAgeMs\":{?},\"heartbeatStaleAfterMs\":{d},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d},\"lastTransitionMs\":{?}{s}}}",
+        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"recoveryEligible\":{s},\"recoveryAction\":\"{s}\",\"heartbeatHealthy\":{s},\"heartbeatAgeMs\":{?},\"heartbeatStaleAfterMs\":{d},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d},\"lastTransitionMs\":{?}{s}}}",
         .{
             service_status.state.asText(),
             if (service_status.installed) "true" else "false",
@@ -22,6 +22,8 @@ pub fn buildServiceSnapshotJson(allocator: std.mem.Allocator, app: *const app_co
             daemon_status.restart_budget_remaining,
             if (daemon_status.restart_budget_exhausted) "true" else "false",
             if (daemon_status.stale_process_detected) "true" else "false",
+            if (daemon_status.recovery_eligible) "true" else "false",
+            daemon_status.recovery_action,
             if (heartbeat_status.healthy) "true" else "false",
             heartbeat_status.age_ms,
             heartbeat_status.stale_after_ms,

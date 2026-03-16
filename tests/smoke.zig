@@ -1473,6 +1473,17 @@ test "service and gateway control commands mutate runtime state" {
     try std.testing.expect(std.mem.indexOf(u8, restart_denied.result.?.success_json, "\"restartBudgetRemaining\":0") != null);
     try std.testing.expect(std.mem.indexOf(u8, restart_denied.result.?.success_json, "\"stopApplied\":false") != null);
 
+    app.service_manager.markStaleProcess();
+    const service_status_after_stale = try dispatcher.dispatch(.{ .request_id = "req_service_status_after_stale", .method = "service.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer switch (service_status_after_stale.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(service_status_after_stale.ok);
+    try std.testing.expect(std.mem.indexOf(u8, service_status_after_stale.result.?.success_json, "\"staleProcessDetected\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, service_status_after_stale.result.?.success_json, "\"recoveryEligible\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, service_status_after_stale.result.?.success_json, "\"recoveryAction\":\"blocked\"") != null);
+
     const gateway_status = try dispatcher.dispatch(.{ .request_id = "req_gateway_status", .method = "gateway.status", .params = &.{}, .source = .@"test", .authority = .admin }, false);
     defer switch (gateway_status.result.?) {
         .success_json => |json| std.testing.allocator.free(json),
