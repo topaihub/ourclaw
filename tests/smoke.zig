@@ -660,7 +660,49 @@ test "session get and compact close the loop for session summary" {
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"replay\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"latestTurn\":{") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"counts\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"usage\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"recentTurns\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, get_envelope.result.?.success_json, "\"totalDeadlineMs\":") != null);
+
+    const rerun_params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_summary_01" } },
+        .{ .key = "prompt", .value = .{ .string = "PROMPT_ASSEMBLY_PROBE" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_session_summary" } },
+    };
+    const rerun_envelope = try dispatcher.dispatch(.{
+        .request_id = "req_session_summary_rerun",
+        .method = "agent.run",
+        .params = rerun_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (rerun_envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(rerun_envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, rerun_envelope.result.?.success_json, "prompt assembly summary-first ok") != null);
+
+    const get_after_rerun = try dispatcher.dispatch(.{
+        .request_id = "req_session_get_after_rerun",
+        .method = "session.get",
+        .params = get_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (get_after_rerun.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(get_after_rerun.ok);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"usage\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"recentTurns\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"recovery\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"executionCursor\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"promptTokens\":36") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"completionTokens\":12") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"totalTokens\":48") != null);
+    try std.testing.expect(std.mem.indexOf(u8, get_after_rerun.result.?.success_json, "\"turnCount\":2") != null);
 }
 
 test "cli channel records real request semantics" {
@@ -1058,6 +1100,7 @@ test "memory snapshot export exposes import-ready roundtrip" {
     try source_app.memory_runtime.appendUserPrompt("sess_mem_roundtrip", "hello \"roundtrip\" memory");
     try source_app.memory_runtime.appendToolResult("sess_mem_roundtrip", "http_request", "{\"status\":200,\"body\":{\"nested\":true}}");
     try source_app.memory_runtime.appendAssistantResponse("sess_mem_roundtrip", "roundtrip memory is ready");
+    source_app.memory_runtime.entries.items[0].ts_unix_ms = 777001;
     const compact_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } },
         .{ .key = "keep_last", .value = .{ .integer = 3 } },
@@ -1090,6 +1133,9 @@ test "memory snapshot export exposes import-ready roundtrip" {
     };
     try std.testing.expect(export_envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, export_envelope.result.?.success_json, "\"snapshotJson\":\"{\\\"version\\\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, export_envelope.result.?.success_json, "\"tsUnixMs\":777001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, export_envelope.result.?.success_json, "\"embeddingProvider\":\"local\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, export_envelope.result.?.success_json, "\"embeddingModel\":\"local-bow-v1\"") != null);
 
     const snapshot_json = try source_app.memory_runtime.exportSnapshotJson(std.testing.allocator);
     defer std.testing.allocator.free(snapshot_json);
@@ -1112,6 +1158,12 @@ test "memory snapshot export exposes import-ready roundtrip" {
     };
     try std.testing.expect(import_envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, import_envelope.result.?.success_json, "\"importedCount\":4") != null);
+
+    const imported_snapshot_json = try imported_app.memory_runtime.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(imported_snapshot_json);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot_json, "\"tsUnixMs\":777001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot_json, "\"embeddingProvider\":\"local\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot_json, "\"embeddingModel\":\"local-bow-v1\"") != null);
 
     const summary_params = [_]framework.ValidationField{.{ .key = "session_id", .value = .{ .string = "sess_mem_roundtrip" } }};
     const summary_envelope = try imported_dispatcher.dispatch(.{
@@ -1241,7 +1293,7 @@ test "memory commands expose summary and retrieval" {
     try std.testing.expect(exported.ok);
     try std.testing.expect(std.mem.indexOf(u8, exported.result.?.success_json, "\"entryCount\":") != null);
 
-    const import_params = [_]framework.ValidationField{.{ .key = "snapshot_json", .value = .{ .string = "{\"version\":2,\"entries\":[{\"sessionId\":\"sess_import_smoke\",\"kind\":\"user_prompt\",\"content\":{\"text\":\"hello\"}}]}" } }};
+    const import_params = [_]framework.ValidationField{.{ .key = "snapshot_json", .value = .{ .string = "{\"version\":2,\"entries\":[{\"sessionId\":\"sess_import_smoke\",\"kind\":\"user_prompt\",\"content\":{\"text\":\"hello\"},\"tsUnixMs\":888001,\"embeddingProvider\":null,\"embeddingModel\":null}]}" } }};
     const imported = try dispatcher.dispatch(.{ .request_id = "req_memory_import", .method = "memory.snapshot_import", .params = import_params[0..], .source = .@"test", .authority = .admin }, false);
     defer if (imported.result) |result| switch (result) {
         .success_json => |json| std.testing.allocator.free(json),
@@ -1249,6 +1301,16 @@ test "memory commands expose summary and retrieval" {
     };
     try std.testing.expect(imported.ok);
     try std.testing.expect(std.mem.indexOf(u8, imported.result.?.success_json, "\"importedCount\":1") != null);
+
+    const re_exported = try dispatcher.dispatch(.{ .request_id = "req_memory_export_after_import", .method = "memory.snapshot_export", .params = &.{}, .source = .@"test", .authority = .admin }, false);
+    defer if (re_exported.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(re_exported.ok);
+    try std.testing.expect(std.mem.indexOf(u8, re_exported.result.?.success_json, "\"tsUnixMs\":888001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, re_exported.result.?.success_json, "\"embeddingProvider\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, re_exported.result.?.success_json, "\"embeddingModel\":null") != null);
 
     const imported_summary_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_import_smoke" } },

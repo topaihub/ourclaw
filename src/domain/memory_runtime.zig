@@ -69,11 +69,13 @@ pub const CompactionResult = struct {
 
 pub const MemoryRecall = struct {
     session_id: []u8,
+    compacted_summary_text: ?[]u8 = null,
     summary_text: []u8,
     entry_count: usize,
 
     pub fn deinit(self: *MemoryRecall, allocator: std.mem.Allocator) void {
         allocator.free(self.session_id);
+        if (self.compacted_summary_text) |value| allocator.free(value);
         allocator.free(self.summary_text);
     }
 };
@@ -122,6 +124,12 @@ pub const SessionSummary = struct {
     }
 };
 
+const ImportedStringField = union(enum) {
+    absent,
+    clear,
+    set: []const u8,
+};
+
 pub const MemoryRuntime = struct {
     allocator: std.mem.Allocator,
     entries: std.ArrayListUnmanaged(MemoryEntry) = .empty,
@@ -166,11 +174,23 @@ pub const MemoryRuntime = struct {
         var selected: std.ArrayListUnmanaged(*const MemoryEntry) = .empty;
         defer selected.deinit(allocator);
 
+        var compacted_summary_text: ?[]u8 = null;
+        errdefer if (compacted_summary_text) |value| allocator.free(value);
+
         var index = self.entries.items.len;
-        while (index > 0 and selected.items.len < max_items) {
+        while (index > 0) {
             index -= 1;
             const entry = &self.entries.items[index];
-            if (std.mem.eql(u8, entry.session_id, session_id)) {
+            if (!std.mem.eql(u8, entry.session_id, session_id)) continue;
+
+            if (std.mem.eql(u8, entry.kind, "session_summary")) {
+                if (compacted_summary_text == null) {
+                    compacted_summary_text = try extractSummaryText(allocator, entry.content_json);
+                }
+                continue;
+            }
+
+            if (selected.items.len < max_items) {
                 try selected.append(allocator, entry);
             }
         }
@@ -187,8 +207,9 @@ pub const MemoryRuntime = struct {
 
         return .{
             .session_id = try allocator.dupe(u8, session_id),
+            .compacted_summary_text = compacted_summary_text,
             .summary_text = try allocator.dupe(u8, buf.items),
-            .entry_count = selected.items.len,
+            .entry_count = selected.items.len + if (compacted_summary_text != null) @as(usize, 1) else 0,
         };
     }
 
@@ -233,9 +254,18 @@ pub const MemoryRuntime = struct {
         var recall = try self.recallForTurn(allocator, session_id, max_items);
         defer recall.deinit(allocator);
 
+        const summary_text = if (recall.compacted_summary_text) |compacted_summary|
+            if (std.mem.trim(u8, recall.summary_text, " \r\n\t").len > 0)
+                try std.fmt.allocPrint(allocator, "session {s}: {s}\nrecent recall: {s}", .{ session_id, compacted_summary, recall.summary_text })
+            else
+                try std.fmt.allocPrint(allocator, "session {s}: {s}", .{ session_id, compacted_summary })
+        else
+            try std.fmt.allocPrint(allocator, "session {s}: {s}", .{ session_id, recall.summary_text });
+        errdefer allocator.free(summary_text);
+
         return .{
             .session_id = try allocator.dupe(u8, session_id),
-            .summary_text = try std.fmt.allocPrint(allocator, "session {s}: {s}", .{ session_id, recall.summary_text }),
+            .summary_text = summary_text,
             .source_count = recall.entry_count,
         };
     }
@@ -341,7 +371,39 @@ pub const MemoryRuntime = struct {
         try writer.writeAll("{\"version\":2,\"entries\":[");
         for (self.entries.items, 0..) |entry, index| {
             if (index > 0) try writer.writeByte(',');
-            try writer.print("{{\"sessionId\":\"{s}\",\"kind\":\"{s}\",\"content\":{s}}}", .{ entry.session_id, entry.kind, entry.content_json });
+            try writer.writeByte('{');
+            try writeJsonStringTo(writer, "sessionId");
+            try writer.writeByte(':');
+            try writeJsonStringTo(writer, entry.session_id);
+            try writer.writeByte(',');
+            try writeJsonStringTo(writer, "kind");
+            try writer.writeByte(':');
+            try writeJsonStringTo(writer, entry.kind);
+            try writer.writeByte(',');
+            try writeJsonStringTo(writer, "content");
+            try writer.writeByte(':');
+            try writer.writeAll(entry.content_json);
+            try writer.writeByte(',');
+            try writeJsonStringTo(writer, "tsUnixMs");
+            try writer.writeByte(':');
+            try writer.print("{d}", .{entry.ts_unix_ms});
+            try writer.writeByte(',');
+            try writeJsonStringTo(writer, "embeddingProvider");
+            try writer.writeByte(':');
+            if (entry.embedding_provider) |value| {
+                try writeJsonStringTo(writer, value);
+            } else {
+                try writer.writeAll("null");
+            }
+            try writer.writeByte(',');
+            try writeJsonStringTo(writer, "embeddingModel");
+            try writer.writeByte(':');
+            if (entry.embedding_model) |value| {
+                try writeJsonStringTo(writer, value);
+            } else {
+                try writer.writeAll("null");
+            }
+            try writer.writeByte('}');
         }
         try writer.writeAll("]}");
         return allocator.dupe(u8, buf.items);
@@ -429,42 +491,31 @@ pub const MemoryRuntime = struct {
             const content = try stringifyJsonValue(allocator, content_value);
             defer allocator.free(content);
 
-            const ts_unix_ms = if (entry_value.object.get("tsUnixMs")) |value|
+            const ts_unix_ms = if (entry_value.object.get("tsUnixMs")) |value| blk: {
                 switch (value) {
-                    .integer => @as(i64, @intCast(value.integer)),
-                    else => null,
+                    .integer => break :blk @as(i64, @intCast(value.integer)),
+                    else => {
+                        rejected_count += 1;
+                        continue;
+                    },
                 }
-            else
-                null;
+            } else null;
 
-            const embedding_provider = if (entry_value.object.get("embeddingProvider")) |value|
-                switch (value) {
-                    .string => value.string,
-                    else => null,
-                }
-            else
-                null;
-
-            const embedding_model = if (entry_value.object.get("embeddingModel")) |value|
-                switch (value) {
-                    .string => value.string,
-                    else => null,
-                }
-            else
-                null;
+            const embedding_provider = parseImportedStringField(entry_value.object.get("embeddingProvider")) catch {
+                rejected_count += 1;
+                continue;
+            };
+            const embedding_model = parseImportedStringField(entry_value.object.get("embeddingModel")) catch {
+                rejected_count += 1;
+                continue;
+            };
 
             try self.appendEntry(session_id_value.string, kind_value.string, content);
             if (self.entries.items.len > 0) {
                 const imported_entry = &self.entries.items[self.entries.items.len - 1];
                 if (ts_unix_ms) |value| imported_entry.ts_unix_ms = value;
-                if (embedding_provider) |value| {
-                    if (imported_entry.embedding_provider) |owned| self.allocator.free(owned);
-                    imported_entry.embedding_provider = try self.allocator.dupe(u8, value);
-                }
-                if (embedding_model) |value| {
-                    if (imported_entry.embedding_model) |owned| self.allocator.free(owned);
-                    imported_entry.embedding_model = try self.allocator.dupe(u8, value);
-                }
+                try applyImportedStringField(self.allocator, &imported_entry.embedding_provider, embedding_provider);
+                try applyImportedStringField(self.allocator, &imported_entry.embedding_model, embedding_model);
             }
             imported_count += 1;
         }
@@ -477,6 +528,29 @@ pub const MemoryRuntime = struct {
         };
     }
 };
+
+fn parseImportedStringField(value: ?std.json.Value) anyerror!ImportedStringField {
+    if (value == null) return .absent;
+    return switch (value.?) {
+        .null => .clear,
+        .string => |text| ImportedStringField{ .set = text },
+        else => error.InvalidSnapshotField,
+    };
+}
+
+fn applyImportedStringField(allocator: std.mem.Allocator, target: *?[]u8, field: ImportedStringField) anyerror!void {
+    switch (field) {
+        .absent => {},
+        .clear => {
+            if (target.*) |owned| allocator.free(owned);
+            target.* = null;
+        },
+        .set => |value| {
+            if (target.*) |owned| allocator.free(owned);
+            target.* = try allocator.dupe(u8, value);
+        },
+    }
+}
 
 const EmbeddingBuildResult = struct {
     vector: EmbeddingVector,
@@ -643,6 +717,19 @@ fn buildSummaryPayload(allocator: std.mem.Allocator, text: []const u8, source_co
     return std.fmt.allocPrint(allocator, "{{\"text\":{s},\"sourceCount\":{d}}}", .{ text_json, source_count });
 }
 
+fn extractSummaryText(allocator: std.mem.Allocator, payload_json: []const u8) anyerror![]u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, payload_json, .{});
+    defer parsed.deinit();
+
+    if (parsed.value == .object) {
+        if (parsed.value.object.get("text")) |value| {
+            if (value == .string) return allocator.dupe(u8, value.string);
+        }
+    }
+
+    return allocator.dupe(u8, payload_json);
+}
+
 fn jsonString(allocator: std.mem.Allocator, value: []const u8) anyerror![]u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(allocator);
@@ -772,6 +859,7 @@ test "memory runtime appends and recalls entries" {
     defer recall.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(usize, 2), recall.entry_count);
+    try std.testing.expect(recall.compacted_summary_text == null);
     try std.testing.expect(std.mem.indexOf(u8, recall.summary_text, "assistant_response") != null);
 }
 
@@ -815,10 +903,14 @@ test "memory runtime exports and migrates snapshot" {
     try runtime.setEmbeddingProvider("local");
     try runtime.setEmbeddingModel("local-bow-v1");
     try runtime.appendUserPrompt("sess_03", "hello migration");
+    runtime.entries.items[0].ts_unix_ms = 123456789;
 
     const snapshot = try runtime.exportSnapshotJson(std.testing.allocator);
     defer std.testing.allocator.free(snapshot);
     try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"version\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"tsUnixMs\":123456789") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"embeddingProvider\":\"local\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"embeddingModel\":\"local-bow-v1\"") != null);
 
     const preview = runtime.previewMigration("{\"version\":1,\"entries\":[]}");
     try std.testing.expect(preview.changed);
@@ -849,6 +941,23 @@ test "memory runtime imports migrated snapshot" {
     try std.testing.expect(hits.len >= 1);
 }
 
+test "memory runtime import preserves explicit null richer metadata" {
+    var runtime = MemoryRuntime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try runtime.setEmbeddingProvider("local");
+    try runtime.setEmbeddingModel("local-bow-v1");
+
+    const result = try runtime.importSnapshotJson(std.testing.allocator, "{\"version\":2,\"entries\":[{\"sessionId\":\"sess_null_meta\",\"kind\":\"user_prompt\",\"content\":{\"text\":\"hello\"},\"tsUnixMs\":999001,\"embeddingProvider\":null,\"embeddingModel\":null}]}");
+    try std.testing.expectEqual(@as(usize, 1), result.imported_count);
+    try std.testing.expectEqual(@as(usize, 0), result.rejected_count);
+
+    const snapshot = try runtime.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"tsUnixMs\":999001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"embeddingProvider\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"embeddingModel\":null") != null);
+}
+
 test "memory runtime snapshot roundtrip preserves summary and retrieval" {
     var source = MemoryRuntime.init(std.testing.allocator);
     defer source.deinit();
@@ -876,7 +985,7 @@ test "memory runtime snapshot roundtrip preserves summary and retrieval" {
     defer summary.deinit(std.testing.allocator);
     try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "sess_roundtrip") != null);
     try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "roundtrip memory") != null);
-    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "session_summary") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.summary_text, "recent recall:") != null);
 
     const hits = try imported.retrieve(std.testing.allocator, "sess_roundtrip", "roundtrip", 4);
     defer {
@@ -893,6 +1002,40 @@ test "memory runtime snapshot roundtrip preserves summary and retrieval" {
     }
     try std.testing.expect(nested_hits.len >= 1);
     try std.testing.expect(std.mem.indexOf(u8, nested_hits[0].content_json, "nested") != null);
+}
+
+test "memory runtime snapshot roundtrip preserves richer metadata" {
+    var source = MemoryRuntime.init(std.testing.allocator);
+    defer source.deinit();
+    try source.setEmbeddingProvider("local");
+    try source.setEmbeddingModel("local-bow-v1");
+    try source.appendUserPrompt("sess_meta_roundtrip", "hello metadata");
+    source.entries.items[0].ts_unix_ms = 444444;
+
+    const snapshot = try source.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "\"tsUnixMs\":444444") != null);
+
+    var imported = MemoryRuntime.init(std.testing.allocator);
+    defer imported.deinit();
+    const result = try imported.importSnapshotJson(std.testing.allocator, snapshot);
+    try std.testing.expectEqual(@as(usize, 1), result.imported_count);
+
+    const imported_snapshot = try imported.exportSnapshotJson(std.testing.allocator);
+    defer std.testing.allocator.free(imported_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot, "\"tsUnixMs\":444444") != null);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot, "\"embeddingProvider\":\"local\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, imported_snapshot, "\"embeddingModel\":\"local-bow-v1\"") != null);
+
+    const hits = try imported.retrieve(std.testing.allocator, "sess_meta_roundtrip", "metadata", 2);
+    defer {
+        for (hits) |*hit| hit.deinit(std.testing.allocator);
+        std.testing.allocator.free(hits);
+    }
+    try std.testing.expect(hits.len >= 1);
+    try std.testing.expectEqual(@as(i64, 444444), hits[0].ts_unix_ms);
+    try std.testing.expectEqualStrings("local", hits[0].embedding_provider.?);
+    try std.testing.expectEqualStrings("local-bow-v1", hits[0].embedding_model.?);
 }
 
 test "memory runtime retrieval ranking exposes rich metadata" {
@@ -940,4 +1083,23 @@ test "memory runtime retrieval ranking exposes rich metadata" {
     try std.testing.expectEqualStrings("openai", hits[0].embedding_provider.?);
     try std.testing.expectEqualStrings("text-embedding-3-small", hits[0].embedding_model.?);
     try std.testing.expect(hits[0].ranking_reason == .hybrid_match or hits[0].ranking_reason == .keyword_overlap);
+}
+
+test "memory runtime recall separates compacted summary from recent entries" {
+    var runtime = MemoryRuntime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    try runtime.appendUserPrompt("sess_summary_first", "older prompt");
+    try runtime.appendAssistantResponse("sess_summary_first", "older response");
+    var compaction = try runtime.compactSession(std.testing.allocator, "sess_summary_first", 1);
+    defer compaction.deinit(std.testing.allocator);
+    try runtime.appendAssistantResponse("sess_summary_first", "recent response");
+
+    var recall = try runtime.recallForTurn(std.testing.allocator, "sess_summary_first", 4);
+    defer recall.deinit(std.testing.allocator);
+
+    try std.testing.expect(recall.compacted_summary_text != null);
+    try std.testing.expect(std.mem.indexOf(u8, recall.compacted_summary_text.?, "session sess_summary_first") != null);
+    try std.testing.expect(std.mem.indexOf(u8, recall.summary_text, "recent response") != null);
+    try std.testing.expect(std.mem.indexOf(u8, recall.summary_text, "session_summary") == null);
 }
