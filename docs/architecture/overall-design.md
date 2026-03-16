@@ -1,16 +1,16 @@
 # ourclaw 总体设计
 
-> 使用说明（2026-03-13）：本文档仍可作为总体设计背景，但如果目标是指导后续大模型继续实施当前主线，请优先使用：
+> 使用说明（2026-03-16）：本文档现在只承担 `ourclaw` 业务侧总体背景说明角色，不再作为默认执行入口。
 >
-> - `ourclaw/docs/specs/framework-based-ourclaw/requirements.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/design.md`
-> - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
 >
-> 原因是 `architecture/` 中部分“当前状态”描述形成于更早阶段，新 spec 已将主线落点、参考源码锚点和任务拆解重新收口为统一执行入口。
+> 本文中的部分“阶段目标/未来结构”形成于 phase-1 之前或 phase-1 初期；阅读时应把它当成背景设计意图，而不是当前实现状态的逐行事实源。
 
 ## 1. 背景与目标
 
-`ourclaw` 是一个计划使用 Zig 重建的新 claw 工程。
+`ourclaw` 已经不是“计划使用 Zig 重建”的空项目，而是已经完成 phase-1 基线并进入 active spec 长期推进阶段的 Zig claw runtime。
 
 本项目的核心诉求不是简单复制 `nullclaw`，而是基于现有三套代码的优点，重新建立一条更干净、更统一、更可扩展的主干：
 
