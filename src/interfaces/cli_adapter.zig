@@ -444,10 +444,42 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
     }
 
     if (std.mem.eql(u8, args[0], "observer.recent")) {
-        const count: usize = if (args.len >= 2) 1 else 0;
+        var with_limit: ?i64 = null;
+        var with_execution_id: ?[]const u8 = null;
+        var with_session_id: ?[]const u8 = null;
+        var index: usize = 1;
+        if (args.len >= 2 and !std.mem.startsWith(u8, args[1], "--")) {
+            with_limit = try std.fmt.parseInt(i64, args[1], 10);
+            index = 2;
+        }
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--execution-id")) {
+                index += 1;
+                if (index >= args.len) return error.MissingExecutionId;
+                with_execution_id = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--session-id")) {
+                index += 1;
+                if (index >= args.len) return error.MissingSessionId;
+                with_session_id = args[index];
+                continue;
+            }
+        }
+
+        const count: usize = @as(usize, if (with_limit != null) 1 else 0) + @as(usize, if (with_execution_id != null) 1 else 0) + @as(usize, if (with_session_id != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
-        if (args.len >= 2) {
-            params[0] = .{ .key = "limit", .value = .{ .integer = try std.fmt.parseInt(i64, args[1], 10) } };
+        var param_index: usize = 0;
+        if (with_limit) |limit| {
+            params[param_index] = .{ .key = "limit", .value = .{ .integer = limit } };
+            param_index += 1;
+        }
+        if (with_execution_id) |execution_id| {
+            params[param_index] = .{ .key = "execution_id", .value = .{ .string = try allocator.dupe(u8, execution_id) } };
+            param_index += 1;
+        }
+        if (with_session_id) |session_id| {
+            params[param_index] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, session_id) } };
         }
         return .{
             .request = .{ .request_id = "cli_req_observer_recent", .method = "observer.recent", .params = params, .source = .cli, .authority = .admin },
@@ -583,10 +615,31 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
     }
 
     if (std.mem.eql(u8, args[0], "events.subscribe")) {
-        const count: usize = if (args.len >= 2) 1 else 0;
+        var with_topic_prefix: ?[]const u8 = null;
+        var with_after_seq: ?i64 = null;
+        var index: usize = 1;
+        if (args.len >= 2 and !std.mem.startsWith(u8, args[1], "--")) {
+            with_topic_prefix = args[1];
+            index = 2;
+        }
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--after-seq")) {
+                index += 1;
+                if (index >= args.len) return error.MissingAfterSeq;
+                with_after_seq = try std.fmt.parseInt(i64, args[index], 10);
+                continue;
+            }
+        }
+
+        const count: usize = @as(usize, if (with_topic_prefix != null) 1 else 0) + @as(usize, if (with_after_seq != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
-        if (args.len >= 2) {
-            params[0] = .{ .key = "topic_prefix", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        var param_index: usize = 0;
+        if (with_topic_prefix) |topic_prefix| {
+            params[param_index] = .{ .key = "topic_prefix", .value = .{ .string = try allocator.dupe(u8, topic_prefix) } };
+            param_index += 1;
+        }
+        if (with_after_seq) |after_seq| {
+            params[param_index] = .{ .key = "after_seq", .value = .{ .integer = after_seq } };
         }
         return .{
             .request = .{ .request_id = "cli_req_events_subscribe", .method = "events.subscribe", .params = params, .source = .cli, .authority = .admin },
@@ -687,11 +740,39 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
 
     if (std.mem.eql(u8, args[0], "events.poll")) {
         if (args.len < 2) return error.MissingSubscriptionId;
-        const count: usize = if (args.len >= 3) 2 else 1;
+        const with_limit: ?i64 = if (args.len >= 3 and !std.mem.startsWith(u8, args[2], "--")) try std.fmt.parseInt(i64, args[2], 10) else null;
+        var with_execution_id: ?[]const u8 = null;
+        var with_session_id: ?[]const u8 = null;
+        var index: usize = if (with_limit != null) 3 else 2;
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--execution-id")) {
+                index += 1;
+                if (index >= args.len) return error.MissingExecutionId;
+                with_execution_id = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--session-id")) {
+                index += 1;
+                if (index >= args.len) return error.MissingSessionId;
+                with_session_id = args[index];
+                continue;
+            }
+        }
+
+        const count: usize = 1 + @as(usize, if (with_limit != null) 1 else 0) + @as(usize, if (with_execution_id != null) 1 else 0) + @as(usize, if (with_session_id != null) 1 else 0);
         const params = try allocator.alloc(framework.ValidationField, count);
         params[0] = .{ .key = "subscription_id", .value = .{ .integer = try std.fmt.parseInt(i64, args[1], 10) } };
-        if (args.len >= 3) {
-            params[1] = .{ .key = "limit", .value = .{ .integer = try std.fmt.parseInt(i64, args[2], 10) } };
+        var param_index: usize = 1;
+        if (with_limit) |limit| {
+            params[param_index] = .{ .key = "limit", .value = .{ .integer = limit } };
+            param_index += 1;
+        }
+        if (with_execution_id) |execution_id| {
+            params[param_index] = .{ .key = "execution_id", .value = .{ .string = try allocator.dupe(u8, execution_id) } };
+            param_index += 1;
+        }
+        if (with_session_id) |session_id| {
+            params[param_index] = .{ .key = "session_id", .value = .{ .string = try allocator.dupe(u8, session_id) } };
         }
         return .{
             .request = .{ .request_id = "cli_req_events_poll", .method = "events.poll", .params = params, .source = .cli, .authority = .admin },
@@ -1232,4 +1313,46 @@ test "cli adapter parses session and memory optional flags" {
         }
     }
     try std.testing.expect(saw_max_items);
+}
+
+test "cli adapter parses events and observer optional flags" {
+    var owned_subscribe = try parseArgs(std.testing.allocator, &.{
+        "events.subscribe",
+        "stream.output",
+        "--after-seq",
+        "5",
+    });
+    defer owned_subscribe.deinit();
+
+    var saw_after_seq = false;
+    for (owned_subscribe.params) |field| {
+        if (std.mem.eql(u8, field.key, "after_seq")) {
+            saw_after_seq = true;
+            try std.testing.expectEqual(@as(i64, 5), field.value.integer);
+        }
+    }
+    try std.testing.expect(saw_after_seq);
+
+    var owned_poll = try parseArgs(std.testing.allocator, &.{
+        "events.poll",
+        "7",
+        "--execution-id",
+        "exec_01",
+        "--session-id",
+        "sess_01",
+    });
+    defer owned_poll.deinit();
+    try std.testing.expect(extractStringParam(owned_poll.params, "execution_id") != null);
+    try std.testing.expect(extractStringParam(owned_poll.params, "session_id") != null);
+
+    var owned_recent = try parseArgs(std.testing.allocator, &.{
+        "observer.recent",
+        "--execution-id",
+        "exec_02",
+        "--session-id",
+        "sess_02",
+    });
+    defer owned_recent.deinit();
+    try std.testing.expect(extractStringParam(owned_recent.params, "execution_id") != null);
+    try std.testing.expect(extractStringParam(owned_recent.params, "session_id") != null);
 }
