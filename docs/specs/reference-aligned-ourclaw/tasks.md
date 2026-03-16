@@ -86,11 +86,17 @@
     - 已完成第三子步：`http_adapter.zig` 已补 gateway control-plane route smoke，覆盖 `/v1/gateway/status`、`/v1/gateway/reload`、`/v1/gateway/stream-subscribe`
     - 完成判断：gateway 状态、reload、stream subscribe 与 health/readiness 字段面已形成统一 contract，并具备 gateway tests + HTTP smoke
 
-- [ ] **C2. 深化 service / daemon 恢复与运行策略**
+- [x] **C2. 深化 service / daemon 恢复与运行策略**
   - 主线落点：`ourclaw/src/runtime/service_manager.zig`、`daemon.zig`、`runtime_host.zig`
   - 参考：`nullclaw` service/runtime，openclaw daemon/service
   - 验证：runtime tests
   - 完成定义：service/daemon 不只是 lifecycle，而有恢复、预算、健康策略
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：`service.install/start/stop/restart/status` 已统一到同一份 service snapshot contract，恢复/host/gateway 运行字段面一致
+    - 已完成第二子步：`restart_budget_remaining` 已从静态字段升级为真实阻断行为；预算耗尽后 `service.restart` 会显式返回 `budgetExhausted`
+    - 已完成第三子步：`heartbeatHealthy / heartbeatAgeMs / heartbeatStaleAfterMs` 已并入 service contract，不再只通过 `heartbeat.status` 独立暴露
+    - 已完成第四子步：stale 进程已形成显式恢复策略投影，`recoveryEligible / recoveryAction` 进入 runtime 与 service contract
+    - 完成判断：service/daemon 当前已具备恢复、预算、健康三类策略面，并通过 runtime tests + smoke 验证
 
 - [ ] **C3. 完成 config schema / migration / import 产品化治理**
   - 主线落点：`ourclaw/src/config/*`、`src/runtime/config_runtime_hooks.zig`

@@ -32,6 +32,12 @@
 
 ## 最近结论
 
+- **C2 已完成（2026-03-16）**：
+  - `service.*` 命令已统一到同一份恢复/健康 snapshot contract
+  - `restart_budget_remaining` 已升级为真实阻断策略，`budgetExhausted` 可见
+  - `heartbeat` 健康已并入 service contract，stale 进程也已形成 `recoveryEligible / recoveryAction` 明确投影
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（179/179）
+
 - **C1 已完成（2026-03-16）**：
   - `gateway.status` / `start` / `stop` / `reload` / `stream_subscribe` 已统一到同一份 gateway snapshot contract
   - `/health` 与 `/ready` 已改为真实 gateway 状态投影
