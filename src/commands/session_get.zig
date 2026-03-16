@@ -43,6 +43,14 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendOptionalStringField(writer, "lastToolId", snapshot.latest_tool_id, false);
     try appendOptionalRawJsonField(writer, "latestToolResult", snapshot.latest_tool_result_json, false);
     try appendUnsignedField(writer, "toolRounds", snapshot.latest_tool_rounds, false);
+    try appendUnsignedField(writer, "providerRoundBudget", snapshot.latest_provider_round_budget, false);
+    try appendUnsignedField(writer, "providerRoundsRemaining", snapshot.latest_provider_rounds_remaining, false);
+    try appendUnsignedField(writer, "providerAttemptBudget", snapshot.latest_provider_attempt_budget, false);
+    try appendUnsignedField(writer, "providerAttemptsRemaining", snapshot.latest_provider_attempts_remaining, false);
+    try appendUnsignedField(writer, "toolCallBudget", snapshot.latest_tool_call_budget, false);
+    try appendUnsignedField(writer, "toolCallsRemaining", snapshot.latest_tool_calls_remaining, false);
+    try appendUnsignedField(writer, "providerRetryBudget", snapshot.latest_provider_retry_budget, false);
+    try appendUnsigned64Field(writer, "totalDeadlineMs", snapshot.latest_total_deadline_ms, false);
     try appendOptionalUnsignedField(writer, "providerLatencyMs", snapshot.latest_provider_latency_ms, false);
     try appendUnsignedField(writer, "memoryEntriesUsed", snapshot.latest_memory_entries_used, false);
     try appendOptionalStringField(writer, "lastErrorCode", snapshot.last_error_code, false);
@@ -86,6 +94,13 @@ fn appendOptionalUnsignedField(writer: anytype, key: []const u8, value: ?u64, fi
     } else {
         try writer.writeAll("null");
     }
+}
+
+fn appendUnsigned64Field(writer: anytype, key: []const u8, value: u64, first: bool) anyerror!void {
+    if (!first) try writer.writeByte(',');
+    try writeJsonString(writer, key);
+    try writer.writeByte(':');
+    try writer.print("{d}", .{value});
 }
 
 fn appendOptionalRawJsonField(writer: anytype, key: []const u8, value: ?[]const u8, first: bool) anyerror!void {

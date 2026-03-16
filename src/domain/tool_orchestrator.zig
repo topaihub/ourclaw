@@ -24,6 +24,9 @@ pub const ToolOrchestrator = struct {
         tool_id: []const u8,
         input_json: []const u8,
         authority: Authority,
+        confirm_risk: bool = false,
+        remaining_budget: ?*usize = null,
+        cancel_requested: ?*const std.atomic.Value(bool) = null,
     };
 
     pub fn init(allocator: std.mem.Allocator, tool_registry: *ToolRegistry, output: *StreamOutput) Self {
@@ -85,7 +88,35 @@ pub const ToolOrchestrator = struct {
                 "tool.call.denied",
                 denied_payload,
             );
+            try self.publishAudit(request, definition, "denied_authority");
             return error.PolicyDenied;
+        }
+
+        if (definition.risk_level == .high and !request.confirm_risk) {
+            const denied_payload = try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"errorCode\":\"TOOL_RISK_CONFIRMATION_REQUIRED\"}}",
+                .{ request.tool_id, @tagName(definition.required_authority), definition.risk_level.asText() },
+            );
+            defer self.allocator.free(denied_payload);
+            _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.call.denied", denied_payload);
+            try self.publishAudit(request, definition, "denied_risk_confirmation");
+            return error.ToolRiskConfirmationRequired;
+        }
+
+        if (request.remaining_budget) |budget| {
+            if (budget.* == 0) {
+                const denied_payload = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"errorCode\":\"TOOL_BUDGET_EXCEEDED\"}}",
+                    .{ request.tool_id, @tagName(definition.required_authority), definition.risk_level.asText() },
+                );
+                defer self.allocator.free(denied_payload);
+                _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.call.denied", denied_payload);
+                try self.publishAudit(request, definition, "denied_budget");
+                return error.ToolBudgetExceeded;
+            }
+            budget.* -= 1;
         }
 
         const started_payload = try std.fmt.allocPrint(
@@ -100,8 +131,9 @@ pub const ToolOrchestrator = struct {
             "tool.call.started",
             started_payload,
         );
+        try self.publishAudit(request, definition, "started");
 
-        const result = self.tool_registry.invoke(self.allocator, request.tool_id, request.input_json) catch |err| {
+        const result = self.tool_registry.invokeWithPolicy(self.allocator, request.tool_id, request.input_json, .{ .confirm_risk = request.confirm_risk, .cancel_requested = request.cancel_requested }) catch |err| {
             const mapped = tools.ToolRegistry.mapError(err);
             const payload = try std.fmt.allocPrint(
                 self.allocator,
@@ -110,6 +142,7 @@ pub const ToolOrchestrator = struct {
             );
             defer self.allocator.free(payload);
             _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.call.failed", payload);
+            try self.publishAudit(request, definition, mapped.code);
             return err;
         };
         errdefer self.allocator.free(result);
@@ -122,7 +155,19 @@ pub const ToolOrchestrator = struct {
         defer self.allocator.free(finished_payload);
         _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.call.finished", finished_payload);
         _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.result", result);
+        try self.publishAudit(request, definition, "finished");
         return result;
+    }
+
+    fn publishAudit(self: *Self, request: SingleInvokeRequest, definition: tools.ToolDefinition, outcome: []const u8) anyerror!void {
+        const remaining_budget = if (request.remaining_budget) |budget| budget.* else 0;
+        const payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"outcome\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"confirmRisk\":{s},\"remainingBudget\":{d}}}",
+            .{ request.tool_id, outcome, @tagName(definition.required_authority), definition.risk_level.asText(), if (request.confirm_risk) "true" else "false", remaining_budget },
+        );
+        defer self.allocator.free(payload);
+        _ = try self.stream_output.publishWithExecution(request.session_id, request.execution_id, "tool.call.audit", payload);
     }
 };
 
@@ -141,8 +186,40 @@ test "tool orchestrator invokes tool and emits stream output" {
     defer std.testing.allocator.free(result);
 
     try std.testing.expect(std.mem.indexOf(u8, result, "\"tool\":\"echo\"") != null);
-    try std.testing.expectEqual(@as(usize, 3), session_store.find("sess_01").?.events.items.len);
+    try std.testing.expectEqual(@as(usize, 5), session_store.find("sess_01").?.events.items.len);
     try std.testing.expect(std.mem.indexOf(u8, session_store.find("sess_01").?.events.items[0].payload_json, "\"toolId\":\"echo\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, session_store.find("sess_01").?.events.items[0].payload_json, "\"contract\":\"single_invocation\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, session_store.find("sess_01").?.events.items[1].payload_json, "\"result\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, session_store.find("sess_01").?.events.items[1].payload_json, "\"outcome\":\"started\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, session_store.find("sess_01").?.events.items[2].payload_json, "\"result\":") != null);
+}
+
+test "tool orchestrator denies high-risk tool without confirmation and budget" {
+    var registry = tools.ToolRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    try registry.registerBuiltins();
+
+    var session_store = @import("session_state.zig").SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &registry, &output);
+
+    var empty_budget: usize = 0;
+    try std.testing.expectError(error.ToolBudgetExceeded, orchestrator.invokeSingle(.{
+        .session_id = "sess_budget_denied",
+        .tool_id = "echo",
+        .input_json = "{}",
+        .authority = .public,
+        .remaining_budget = &empty_budget,
+    }));
+
+    try std.testing.expectError(error.ToolRiskConfirmationRequired, orchestrator.invokeSingle(.{
+        .session_id = "sess_risk_denied",
+        .tool_id = "shell",
+        .input_json = "{\"command\":\"echo hello\"}",
+        .authority = .admin,
+    }));
+
+    const risk_events = session_store.find("sess_risk_denied").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, risk_events[0].payload_json, "TOOL_RISK_CONFIRMATION_REQUIRED") != null or std.mem.indexOf(u8, risk_events[1].payload_json, "TOOL_RISK_CONFIRMATION_REQUIRED") != null);
 }

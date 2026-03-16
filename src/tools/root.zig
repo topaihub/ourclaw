@@ -7,7 +7,15 @@ pub const http_request = @import("http_request.zig");
 
 pub const MODULE_NAME = "tools";
 
-pub const ToolHandler = *const fn (allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8;
+pub const ToolExecutionContext = struct {
+    cancel_requested: ?*const std.atomic.Value(bool) = null,
+
+    pub fn isCancelled(self: ToolExecutionContext) bool {
+        return if (self.cancel_requested) |signal| signal.load(.acquire) else false;
+    }
+};
+
+pub const ToolHandler = *const fn (ctx: ToolExecutionContext, allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8;
 
 pub const ToolRiskLevel = enum {
     low,
@@ -36,6 +44,11 @@ pub const ToolDefinition = struct {
 pub const ToolErrorInfo = struct {
     code: []const u8,
     message: []const u8,
+};
+
+pub const ToolInvokePolicy = struct {
+    confirm_risk: bool = false,
+    cancel_requested: ?*const std.atomic.Value(bool) = null,
 };
 
 pub const ToolRegistry = struct {
@@ -77,9 +90,17 @@ pub const ToolRegistry = struct {
     }
 
     pub fn invoke(self: *const Self, allocator: std.mem.Allocator, id: []const u8, input_json: []const u8) anyerror![]u8 {
+        return self.invokeWithPolicy(allocator, id, input_json, .{});
+    }
+
+    pub fn invokeWithPolicy(self: *const Self, allocator: std.mem.Allocator, id: []const u8, input_json: []const u8, policy: ToolInvokePolicy) anyerror![]u8 {
         const definition = self.find(id) orelse return error.ToolNotFound;
+        if (definition.risk_level == .high and !policy.confirm_risk) return error.ToolRiskConfirmationRequired;
+        if (policy.cancel_requested) |signal| {
+            if (signal.load(.acquire)) return error.StreamCancelled;
+        }
         try validateInput(definition, input_json);
-        return definition.handler(allocator, input_json);
+        return definition.handler(.{ .cancel_requested = policy.cancel_requested }, allocator, input_json);
     }
 
     pub fn schemaJson(self: *const Self, allocator: std.mem.Allocator, id: []const u8) anyerror![]u8 {
@@ -106,6 +127,9 @@ pub const ToolRegistry = struct {
     pub fn mapError(err: anyerror) ToolErrorInfo {
         return switch (err) {
             error.ToolNotFound => .{ .code = "TOOL_NOT_FOUND", .message = "tool is not registered" },
+            error.ToolBudgetExceeded => .{ .code = "TOOL_BUDGET_EXCEEDED", .message = "tool call budget has been exhausted" },
+            error.ToolRiskConfirmationRequired => .{ .code = "TOOL_RISK_CONFIRMATION_REQUIRED", .message = "high-risk tool invocation requires explicit confirmation" },
+            error.StreamCancelled => .{ .code = "TOOL_CANCELLED", .message = "tool execution was cancelled" },
             error.ToolValidationFailed => .{ .code = "TOOL_VALIDATION_FAILED", .message = "tool input does not match schema" },
             error.MissingPath, error.MissingCommand, error.MissingUrl => .{ .code = "TOOL_VALIDATION_FAILED", .message = "tool input is missing required fields" },
             error.PathTraversalNotAllowed, error.InvalidUrlScheme => .{ .code = "TOOL_POLICY_DENIED", .message = "tool input violates security policy" },
@@ -128,11 +152,11 @@ fn hasJsonStringField(input_json: []const u8, key: []const u8) bool {
     return std.mem.indexOf(u8, input_json, needle) != null;
 }
 
-fn echoTool(allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
+fn echoTool(_: ToolExecutionContext, allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
     return std.fmt.allocPrint(allocator, "{{\"tool\":\"echo\",\"input\":{s}}}", .{input_json});
 }
 
-fn clockTool(allocator: std.mem.Allocator, _: []const u8) anyerror![]u8 {
+fn clockTool(_: ToolExecutionContext, allocator: std.mem.Allocator, _: []const u8) anyerror![]u8 {
     return std.fmt.allocPrint(allocator, "{{\"tool\":\"clock\",\"tsUnixMs\":{d}}}", .{std.time.milliTimestamp()});
 }
 
@@ -155,7 +179,7 @@ test "tool registry exposes schema and maps validation errors" {
     defer std.testing.allocator.free(schema);
     try std.testing.expect(std.mem.indexOf(u8, schema, "command") != null);
 
-    try std.testing.expectError(error.ToolValidationFailed, registry.invoke(std.testing.allocator, "shell", "{}"));
+    try std.testing.expectError(error.ToolValidationFailed, registry.invoke(std.testing.allocator, "http_request", "{}"));
     const mapped = ToolRegistry.mapError(error.ToolValidationFailed);
     try std.testing.expectEqualStrings("TOOL_VALIDATION_FAILED", mapped.code);
 
@@ -163,4 +187,25 @@ test "tool registry exposes schema and maps validation errors" {
     defer std.testing.allocator.free(tools_prompt);
     try std.testing.expect(std.mem.indexOf(u8, tools_prompt, "\"id\":\"shell\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools_prompt, "\"riskLevel\":\"high\"") != null);
+}
+
+test "tool registry requires confirmation for high-risk tools" {
+    var registry = ToolRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    try registry.registerBuiltins();
+
+    try std.testing.expectError(error.ToolRiskConfirmationRequired, registry.invoke(std.testing.allocator, "shell", "{\"command\":\"echo hello\"}"));
+
+    const result = try registry.invokeWithPolicy(std.testing.allocator, "shell", "{\"command\":\"echo hello\"}", .{ .confirm_risk = true });
+    defer std.testing.allocator.free(result);
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"tool\":\"shell\"") != null);
+}
+
+test "tool registry propagates cancel signal into tool execution" {
+    var registry = ToolRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    try registry.registerBuiltins();
+
+    var cancelled = std.atomic.Value(bool).init(true);
+    try std.testing.expectError(error.StreamCancelled, registry.invokeWithPolicy(std.testing.allocator, "http_request", "{\"url\":\"mock://http/ok\"}", .{ .cancel_requested = &cancelled }));
 }

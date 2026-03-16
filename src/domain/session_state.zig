@@ -42,6 +42,14 @@ pub const SessionSnapshot = struct {
     latest_tool_rounds: usize = 0,
     latest_provider_latency_ms: ?u64 = null,
     latest_memory_entries_used: usize = 0,
+    latest_provider_round_budget: usize = 0,
+    latest_provider_rounds_remaining: usize = 0,
+    latest_provider_attempt_budget: usize = 0,
+    latest_provider_attempts_remaining: usize = 0,
+    latest_tool_call_budget: usize = 0,
+    latest_tool_calls_remaining: usize = 0,
+    latest_provider_retry_budget: usize = 0,
+    latest_total_deadline_ms: u64 = 0,
     last_error_code: ?[]u8 = null,
 
     pub fn deinit(self: *SessionSnapshot, allocator: std.mem.Allocator) void {
@@ -121,6 +129,14 @@ pub const SessionStore = struct {
         var latest_tool_rounds: usize = 0;
         var latest_provider_latency_ms: ?u64 = null;
         var latest_memory_entries_used: usize = 0;
+        var latest_provider_round_budget: usize = 0;
+        var latest_provider_rounds_remaining: usize = 0;
+        var latest_provider_attempt_budget: usize = 0;
+        var latest_provider_attempts_remaining: usize = 0;
+        var latest_tool_call_budget: usize = 0;
+        var latest_tool_calls_remaining: usize = 0;
+        var latest_provider_retry_budget: usize = 0;
+        var latest_total_deadline_ms: u64 = 0;
         var last_error_code: ?[]u8 = null;
         var tool_trace_count: usize = 0;
 
@@ -156,6 +172,14 @@ pub const SessionStore = struct {
                 if (latest_provider_latency_ms == null) latest_provider_latency_ms = parseJsonUnsignedField(event.payload_json, "providerLatencyMs");
                 if (latest_tool_rounds == 0) latest_tool_rounds = @intCast(parseJsonUnsignedField(event.payload_json, "toolRounds") orelse 0);
                 if (latest_memory_entries_used == 0) latest_memory_entries_used = @intCast(parseJsonUnsignedField(event.payload_json, "memoryEntriesUsed") orelse 0);
+                if (latest_provider_round_budget == 0) latest_provider_round_budget = @intCast(parseJsonUnsignedField(event.payload_json, "providerRoundBudget") orelse 0);
+                if (latest_provider_rounds_remaining == 0) latest_provider_rounds_remaining = @intCast(parseJsonUnsignedField(event.payload_json, "providerRoundsRemaining") orelse 0);
+                if (latest_provider_attempt_budget == 0) latest_provider_attempt_budget = @intCast(parseJsonUnsignedField(event.payload_json, "providerAttemptBudget") orelse 0);
+                if (latest_provider_attempts_remaining == 0) latest_provider_attempts_remaining = @intCast(parseJsonUnsignedField(event.payload_json, "providerAttemptsRemaining") orelse 0);
+                if (latest_tool_call_budget == 0) latest_tool_call_budget = @intCast(parseJsonUnsignedField(event.payload_json, "toolCallBudget") orelse 0);
+                if (latest_tool_calls_remaining == 0) latest_tool_calls_remaining = @intCast(parseJsonUnsignedField(event.payload_json, "toolCallsRemaining") orelse 0);
+                if (latest_provider_retry_budget == 0) latest_provider_retry_budget = @intCast(parseJsonUnsignedField(event.payload_json, "providerRetryBudget") orelse 0);
+                if (latest_total_deadline_ms == 0) latest_total_deadline_ms = parseJsonUnsignedField(event.payload_json, "totalDeadlineMs") orelse 0;
             }
         }
 
@@ -176,6 +200,14 @@ pub const SessionStore = struct {
             .latest_tool_rounds = latest_tool_rounds,
             .latest_provider_latency_ms = latest_provider_latency_ms,
             .latest_memory_entries_used = latest_memory_entries_used,
+            .latest_provider_round_budget = latest_provider_round_budget,
+            .latest_provider_rounds_remaining = latest_provider_rounds_remaining,
+            .latest_provider_attempt_budget = latest_provider_attempt_budget,
+            .latest_provider_attempts_remaining = latest_provider_attempts_remaining,
+            .latest_tool_call_budget = latest_tool_call_budget,
+            .latest_tool_calls_remaining = latest_tool_calls_remaining,
+            .latest_provider_retry_budget = latest_provider_retry_budget,
+            .latest_total_deadline_ms = latest_total_deadline_ms,
             .last_error_code = last_error_code,
         };
     }
@@ -250,7 +282,7 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try store.appendEvent("sess_turn", "tool.call.started", "{\"toolId\":\"echo\"}");
     try store.appendEvent("sess_turn", "tool.result", "{\"ok\":true}");
     try store.appendEvent("sess_turn", "assistant.response", "hello back");
-    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3}");
+    try store.appendEvent("sess_turn", "session.turn.completed", "{\"providerId\":\"mock_openai\",\"model\":\"gpt-4o-mini\",\"toolId\":\"echo\",\"toolRounds\":1,\"providerRoundBudget\":4,\"providerRoundsRemaining\":2,\"providerAttemptBudget\":8,\"providerAttemptsRemaining\":6,\"toolCallBudget\":3,\"toolCallsRemaining\":1,\"providerRetryBudget\":1,\"totalDeadlineMs\":250,\"providerLatencyMs\":42,\"memoryEntriesUsed\":3}");
 
     var snapshot = try store.snapshotMeta(std.testing.allocator, "sess_turn");
     defer snapshot.deinit(std.testing.allocator);
@@ -263,4 +295,12 @@ test "session store tracks latest turn metadata and tool trace summary" {
     try std.testing.expectEqual(@as(usize, 1), snapshot.latest_tool_rounds);
     try std.testing.expectEqual(@as(u64, 42), snapshot.latest_provider_latency_ms.?);
     try std.testing.expectEqual(@as(usize, 3), snapshot.latest_memory_entries_used);
+    try std.testing.expectEqual(@as(usize, 4), snapshot.latest_provider_round_budget);
+    try std.testing.expectEqual(@as(usize, 2), snapshot.latest_provider_rounds_remaining);
+    try std.testing.expectEqual(@as(usize, 8), snapshot.latest_provider_attempt_budget);
+    try std.testing.expectEqual(@as(usize, 6), snapshot.latest_provider_attempts_remaining);
+    try std.testing.expectEqual(@as(usize, 3), snapshot.latest_tool_call_budget);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.latest_tool_calls_remaining);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.latest_provider_retry_budget);
+    try std.testing.expectEqual(@as(u64, 250), snapshot.latest_total_deadline_ms);
 }

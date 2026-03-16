@@ -1,7 +1,9 @@
 const std = @import("std");
 const http_util = @import("../compat/http_util.zig");
+const tools = @import("root.zig");
 
-pub fn execute(allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
+pub fn execute(ctx: tools.ToolExecutionContext, allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
+    if (ctx.isCancelled()) return error.StreamCancelled;
     const url = parseRequiredStringField(input_json, "url") orelse return error.MissingUrl;
     const method = parseOptionalStringField(input_json, "method") orelse "GET";
     const body = parseOptionalStringField(input_json, "body");
@@ -10,7 +12,7 @@ pub fn execute(allocator: std.mem.Allocator, input_json: []const u8) anyerror![]
         return error.InvalidUrlScheme;
     }
 
-    var response = try http_util.curlRequest(allocator, method, url, &.{}, body, 30);
+    var response = try http_util.curlRequest(allocator, method, url, &.{}, body, 30, ctx.cancel_requested);
     defer response.deinit(allocator);
 
     const body_json = try jsonString(allocator, response.body);
@@ -56,7 +58,12 @@ fn jsonString(allocator: std.mem.Allocator, value: []const u8) anyerror![]u8 {
 }
 
 test "http request tool supports mock transport" {
-    const result = try execute(std.testing.allocator, "{\"url\":\"mock://http/ok\"}");
+    const result = try execute(.{}, std.testing.allocator, "{\"url\":\"mock://http/ok\"}");
     defer std.testing.allocator.free(result);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"status\":200") != null);
+}
+
+test "http request tool honours cancellation signal" {
+    var cancelled = std.atomic.Value(bool).init(true);
+    try std.testing.expectError(error.StreamCancelled, execute(.{ .cancel_requested = &cancelled }, std.testing.allocator, "{\"url\":\"mock://http/cancel_wait\"}"));
 }

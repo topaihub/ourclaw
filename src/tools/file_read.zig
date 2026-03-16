@@ -1,6 +1,8 @@
 const std = @import("std");
+const tools = @import("root.zig");
 
-pub fn execute(allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
+pub fn execute(ctx: tools.ToolExecutionContext, allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
+    if (ctx.isCancelled()) return error.StreamCancelled;
     const path = parseRequiredStringField(input_json, "path") orelse return error.MissingPath;
     if (hasTraversal(path)) return error.PathTraversalNotAllowed;
 
@@ -64,7 +66,7 @@ test "file read tool reads local file" {
     const input = try std.fmt.allocPrint(std.testing.allocator, "{{\"path\":\"{s}\"}}", .{path});
     defer std.testing.allocator.free(input);
 
-    const result = try execute(std.testing.allocator, input);
+    const result = try execute(.{}, std.testing.allocator, input);
     defer std.testing.allocator.free(result);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"tool\":\"file_read\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "hello") != null);

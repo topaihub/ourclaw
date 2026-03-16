@@ -180,6 +180,7 @@ const TextDeltaBatch = struct {
     coalesce_byte_limit: usize,
     throttle_window_ms: u64,
     buffer: std.ArrayListUnmanaged(u8) = .empty,
+    stream_source: ?[]u8 = null,
     latest_seq: u64 = 0,
     count: usize = 0,
     started_at_ms: ?i64 = null,
@@ -195,22 +196,27 @@ const TextDeltaBatch = struct {
 
     fn deinit(self: *TextDeltaBatch) void {
         self.buffer.deinit(self.allocator);
+        if (self.stream_source) |value| self.allocator.free(value);
     }
 
     fn hasPending(self: *const TextDeltaBatch) bool {
         return self.count > 0;
     }
 
-    fn shouldFlushBeforeAppend(self: *const TextDeltaBatch, append_len: usize) bool {
+    fn shouldFlushBeforeAppend(self: *const TextDeltaBatch, append_len: usize, stream_source: ?[]const u8) bool {
         if (!self.hasPending()) return false;
+        if (!sameOptionalString(self.stream_source, stream_source)) return true;
         if (self.coalesce_event_limit > 0 and self.count >= self.coalesce_event_limit) return true;
         if (self.coalesce_byte_limit > 0 and self.buffer.items.len + append_len > self.coalesce_byte_limit) return true;
         return false;
     }
 
-    fn append(self: *TextDeltaBatch, seq: u64, text: []const u8) anyerror!void {
+    fn append(self: *TextDeltaBatch, seq: u64, text: []const u8, stream_source: ?[]const u8) anyerror!void {
         if (self.count == 0) {
             self.started_at_ms = std.time.milliTimestamp();
+            if (stream_source) |value| {
+                self.stream_source = try self.allocator.dupe(u8, value);
+            }
         }
         try self.buffer.appendSlice(self.allocator, text);
         self.latest_seq = seq;
@@ -228,6 +234,8 @@ const TextDeltaBatch = struct {
 
     fn reset(self: *TextDeltaBatch) void {
         self.buffer.clearRetainingCapacity();
+        if (self.stream_source) |value| self.allocator.free(value);
+        self.stream_source = null;
         self.latest_seq = 0;
         self.count = 0;
         self.started_at_ms = null;
@@ -270,16 +278,17 @@ const SseProjector = struct {
     fn tryCoalesceTextDelta(self: *SseProjector, seq: u64, kind: []const u8, payload_json: []const u8) anyerror!bool {
         if (!std.mem.eql(u8, kind, "text.delta")) return false;
         const text = extractTextDelta(payload_json) orelse return false;
-        if (self.pending_text.shouldFlushBeforeAppend(text.len)) {
+        const stream_source = extractTextDeltaStreamSource(payload_json);
+        if (self.pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
             try self.flushPendingText();
         }
-        try self.pending_text.append(seq, text);
+        try self.pending_text.append(seq, text, stream_source);
         return true;
     }
 
     fn flushPendingText(self: *SseProjector) anyerror!void {
         if (!self.pending_text.hasPending()) return;
-        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items);
+        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items, self.pending_text.stream_source);
         defer self.allocator.free(payload);
         try writeControlledSseEvent(self.allocator, self.sink, self.state, null, "text.delta", self.pending_text.latest_seq, payload);
         self.pending_text.reset();
@@ -322,16 +331,17 @@ const BridgeProjector = struct {
     fn tryCoalesceTextDelta(self: *BridgeProjector, seq: u64, kind: []const u8, payload_json: []const u8) anyerror!bool {
         if (!std.mem.eql(u8, kind, "text.delta")) return false;
         const text = extractTextDelta(payload_json) orelse return false;
-        if (self.pending_text.shouldFlushBeforeAppend(text.len)) {
+        const stream_source = extractTextDeltaStreamSource(payload_json);
+        if (self.pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
             try self.flushPendingText();
         }
-        try self.pending_text.append(seq, text);
+        try self.pending_text.append(seq, text, stream_source);
         return true;
     }
 
     fn flushPendingText(self: *BridgeProjector) anyerror!void {
         if (!self.pending_text.hasPending()) return;
-        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items);
+        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items, self.pending_text.stream_source);
         defer self.allocator.free(payload);
         try writeControlledJsonLineEvent(self.allocator, self.sink, self.state, "text.delta", self.pending_text.latest_seq, payload);
         self.pending_text.reset();
@@ -374,16 +384,17 @@ const WebSocketProjector = struct {
     fn tryCoalesceTextDelta(self: *WebSocketProjector, seq: u64, kind: []const u8, payload_json: []const u8) anyerror!bool {
         if (!std.mem.eql(u8, kind, "text.delta")) return false;
         const text = extractTextDelta(payload_json) orelse return false;
-        if (self.pending_text.shouldFlushBeforeAppend(text.len)) {
+        const stream_source = extractTextDeltaStreamSource(payload_json);
+        if (self.pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
             try self.flushPendingText();
         }
-        try self.pending_text.append(seq, text);
+        try self.pending_text.append(seq, text, stream_source);
         return true;
     }
 
     fn flushPendingText(self: *WebSocketProjector) anyerror!void {
         if (!self.pending_text.hasPending()) return;
-        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items);
+        const payload = try buildTextDeltaJson(self.allocator, self.pending_text.buffer.items, self.pending_text.stream_source);
         defer self.allocator.free(payload);
         try writeControlledWebSocketEvent(self.allocator, self.sink, self.state, "text.delta", self.pending_text.latest_seq, payload);
         self.pending_text.reset();
@@ -440,7 +451,9 @@ pub fn writeSseAgentStream(allocator: std.mem.Allocator, app: *runtime.AppContex
                     try finishSseTerminalState(allocator, sink, parsed.request_id, &state, err);
                     return;
                 };
-                try drainExecutionAsSse(allocator, sink, &state, execution, last_event_id);
+                drainExecutionAsSse(allocator, sink, &state, execution, last_event_id) catch |err| {
+                    try finishSseTerminalState(allocator, sink, parsed.request_id, &state, err);
+                };
                 return;
             }
 
@@ -490,7 +503,9 @@ pub fn writeSseAgentStream(allocator: std.mem.Allocator, app: *runtime.AppContex
             );
             defer allocator.free(live_meta_json);
             try writeControlledSseEvent(allocator, sink, &state, null, "meta", 0, live_meta_json);
-            try drainExecutionAsSse(allocator, sink, &state, resolved.execution, 0);
+            drainExecutionAsSse(allocator, sink, &state, resolved.execution, 0) catch |err| {
+                try finishSseTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
             return;
         },
         .execution => |cursor| {
@@ -517,7 +532,9 @@ pub fn writeSseAgentStream(allocator: std.mem.Allocator, app: *runtime.AppContex
                 try finishSseTerminalState(allocator, sink, parsed.request_id, &state, err);
                 return;
             };
-            try drainExecutionAsSse(allocator, sink, &state, execution, cursor.after_seq);
+            drainExecutionAsSse(allocator, sink, &state, execution, cursor.after_seq) catch |err| {
+                try finishSseTerminalState(allocator, sink, parsed.request_id, &state, err);
+            };
             return;
         },
     }
@@ -842,6 +859,11 @@ fn drainExecutionAsSse(
                 execution.requestCancel();
             }
         }
+        if (state.client_closed) |signal| {
+            if (signal.load(.acquire)) {
+                execution.requestCancel();
+            }
+        }
 
         const events = try execution.snapshotAfter(allocator, cursor);
         defer {
@@ -859,10 +881,11 @@ fn drainExecutionAsSse(
                         cursor = event.seq;
                         continue;
                     };
-                    if (pending_text.shouldFlushBeforeAppend(text.len)) {
+                    const stream_source = extractTextDeltaStreamSource(event.payload_json);
+                    if (pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
                         try flushPendingSseText(allocator, sink, state, execution.id, &pending_text);
                     }
-                    try pending_text.append(event.seq, text);
+                    try pending_text.append(event.seq, text, stream_source);
                     cursor = event.seq;
                     if (pending_text.shouldFlushByWindow(now_ms)) {
                         try flushPendingSseText(allocator, sink, state, execution.id, &pending_text);
@@ -911,6 +934,11 @@ fn drainExecutionAsBridge(
                 execution.requestCancel();
             }
         }
+        if (state.client_closed) |signal| {
+            if (signal.load(.acquire)) {
+                execution.requestCancel();
+            }
+        }
 
         const events = try execution.snapshotAfter(allocator, cursor);
         defer {
@@ -928,10 +956,11 @@ fn drainExecutionAsBridge(
                         cursor = event.seq;
                         continue;
                     };
-                    if (pending_text.shouldFlushBeforeAppend(text.len)) {
+                    const stream_source = extractTextDeltaStreamSource(event.payload_json);
+                    if (pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
                         try flushPendingBridgeText(allocator, sink, state, &pending_text);
                     }
-                    try pending_text.append(event.seq, text);
+                    try pending_text.append(event.seq, text, stream_source);
                     cursor = event.seq;
                     if (pending_text.shouldFlushByWindow(now_ms)) {
                         try flushPendingBridgeText(allocator, sink, state, &pending_text);
@@ -1009,6 +1038,9 @@ fn drainExecutionAsWebSocket(
         if (state.cancel_requested) |signal| {
             if (signal.load(.acquire)) execution.requestCancel();
         }
+        if (state.client_closed) |signal| {
+            if (signal.load(.acquire)) execution.requestCancel();
+        }
 
         if (signals.pause_requested) |pause_requested| {
             if (pause_requested.swap(false, .acq_rel)) {
@@ -1061,10 +1093,11 @@ fn drainExecutionAsWebSocket(
                         cursor = event.seq;
                         continue;
                     };
-                    if (pending_text.shouldFlushBeforeAppend(text.len)) {
+                    const stream_source = extractTextDeltaStreamSource(event.payload_json);
+                    if (pending_text.shouldFlushBeforeAppend(text.len, stream_source)) {
                         try flushPendingWebSocketText(allocator, sink, state, &pending_text);
                     }
-                    try pending_text.append(event.seq, text);
+                    try pending_text.append(event.seq, text, stream_source);
                     cursor = event.seq;
                     if (pending_text.shouldFlushByWindow(now_ms)) {
                         try flushPendingWebSocketText(allocator, sink, state, &pending_text);
@@ -1109,7 +1142,7 @@ fn flushPendingSseText(
     pending_text: *TextDeltaBatch,
 ) anyerror!void {
     if (!pending_text.hasPending()) return;
-    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items);
+    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items, pending_text.stream_source);
     defer allocator.free(payload);
     try writeControlledSseEvent(allocator, sink, state, execution_id, "text.delta", pending_text.latest_seq, payload);
     pending_text.reset();
@@ -1122,7 +1155,7 @@ fn flushPendingBridgeText(
     pending_text: *TextDeltaBatch,
 ) anyerror!void {
     if (!pending_text.hasPending()) return;
-    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items);
+    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items, pending_text.stream_source);
     defer allocator.free(payload);
     try writeControlledJsonLineEvent(allocator, sink, state, "text.delta", pending_text.latest_seq, payload);
     pending_text.reset();
@@ -1135,7 +1168,7 @@ fn flushPendingWebSocketText(
     pending_text: *TextDeltaBatch,
 ) anyerror!void {
     if (!pending_text.hasPending()) return;
-    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items);
+    const payload = try buildTextDeltaJson(allocator, pending_text.buffer.items, pending_text.stream_source);
     defer allocator.free(payload);
     try writeControlledWebSocketEvent(allocator, sink, state, "text.delta", pending_text.latest_seq, payload);
     pending_text.reset();
@@ -1472,14 +1505,27 @@ fn extractTextDelta(payload_json: []const u8) ?[]const u8 {
     return extractJsonStringField(payload_json, "text");
 }
 
-fn buildTextDeltaJson(allocator: std.mem.Allocator, text: []const u8) anyerror![]u8 {
+fn buildTextDeltaJson(allocator: std.mem.Allocator, text: []const u8, stream_source: ?[]const u8) anyerror![]u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(allocator);
     const writer = buf.writer(allocator);
     try writer.writeByte('{');
     try appendJsonStringField(writer, "text", text, true);
+    if (stream_source) |value| {
+        try appendJsonStringField(writer, "streamSource", value, false);
+    }
     try writer.writeByte('}');
     return allocator.dupe(u8, buf.items);
+}
+
+fn extractTextDeltaStreamSource(payload_json: []const u8) ?[]const u8 {
+    return extractJsonStringField(payload_json, "streamSource");
+}
+
+fn sameOptionalString(left: ?[]const u8, right: ?[]const u8) bool {
+    if (left == null and right == null) return true;
+    if (left == null or right == null) return false;
+    return std.mem.eql(u8, left.?, right.?);
 }
 
 fn extractJsonStringField(body: []const u8, key: []const u8) ?[]const u8 {
@@ -1594,7 +1640,7 @@ fn writeControlledWebSocketTermination(allocator: std.mem.Allocator, sink: ByteS
 
 fn controlledTerminalClose(err: anyerror) struct { u16, []const u8 } {
     return switch (err) {
-        error.StreamCancelled => .{ 1000, "cancelled" },
+        error.StreamCancelled => .{ 1000, "client_cancel" },
         error.StreamBackpressureExceeded => .{ 1008, "backpressure" },
         error.StreamClientDisconnected => .{ 1001, "client_disconnect" },
         else => .{ 1011, "error" },
@@ -1974,7 +2020,8 @@ test "stream projection bridge drains text delta by throttle window policy" {
     const default_output = try default_sink.toOwnedSlice();
     defer std.testing.allocator.free(default_output);
     const default_delta_count = countOccurrences(default_output, "\"event\":\"text.delta\"");
-    try std.testing.expectEqual(@as(usize, 1), default_delta_count);
+    try std.testing.expectEqual(@as(usize, 2), default_delta_count);
+    try std.testing.expect(std.mem.indexOf(u8, default_output, "\"streamSource\":\"provider_native\"") != null);
 
     const window_params = [_]framework.ValidationField{
         .{ .key = "session_id", .value = .{ .string = "sess_bridge_throttle_window" } },
@@ -1997,7 +2044,8 @@ test "stream projection bridge drains text delta by throttle window policy" {
     defer std.testing.allocator.free(window_output);
     const window_delta_count = countOccurrences(window_output, "\"event\":\"text.delta\"");
     try std.testing.expect(window_delta_count > default_delta_count);
-    try std.testing.expect(window_delta_count >= 4);
+    try std.testing.expect(window_delta_count >= 5);
+    try std.testing.expect(std.mem.indexOf(u8, window_output, "\"streamSource\":\"provider_native\"") != null);
 }
 
 test "stream projection returns replay only sse stream for last event id" {
@@ -2248,6 +2296,46 @@ test "stream projection honours external cancel signal" {
     try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"client_cancel\"") != null);
 }
 
+test "stream projection SSE honours external cancel signal" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_stream_sse_cancel_signal",
+        .label = "Mock OpenAI Stream SSE Cancel Signal",
+        .endpoint = "mock://openai/chat_cancel_wait",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = false,
+        .health_json = "{}",
+    });
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_stream_sse_cancel_signal" } },
+        .{ .key = "prompt", .value = .{ .string = "hello cancel" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_stream_sse_cancel_signal" } },
+    };
+
+    var cancel_requested = std.atomic.Value(bool).init(false);
+    const worker = try std.Thread.spawn(.{}, triggerProjectionCancelLater, .{&cancel_requested});
+    defer worker.join();
+    var sink = sink_model.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+    try writeSseAgentStream(std.testing.allocator, app, .{
+        .request_id = "stream_req_sse_cancel_signal_01",
+        .params = params[0..],
+        .authority = .admin,
+        .cancel_requested = &cancel_requested,
+    }, sink.asByteSink());
+
+    const output = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "event: error") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "StreamCancelled") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"terminalReason\":\"client_cancel\"") != null);
+}
+
 test "stream projection treats broken pipe as client disconnect" {
     var app = try runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
@@ -2407,7 +2495,7 @@ test "stream projection websocket controlled terminal writes close reason" {
             const parsed_close = try stream_websocket.parseClosePayload(payload);
             try std.testing.expectEqual(@as(?u16, 1000), parsed_close.close_code);
             try std.testing.expect(parsed_close.close_reason != null);
-            try std.testing.expectEqualStrings("cancelled", parsed_close.close_reason.?);
+            try std.testing.expectEqualStrings("client_cancel", parsed_close.close_reason.?);
             break;
         }
 
@@ -2421,4 +2509,75 @@ test "stream projection websocket controlled terminal writes close reason" {
 
     try std.testing.expect(saw_done);
     try std.testing.expect(close_frame_found);
+}
+
+test "stream projection websocket honours external cancel signal" {
+    var app = try runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.provider_registry.register(.{
+        .id = "mock_openai_stream_ws_cancel_signal",
+        .label = "Mock OpenAI Stream WS Cancel Signal",
+        .endpoint = "mock://openai/chat_cancel_wait",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = false,
+        .health_json = "{}",
+    });
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "session_id", .value = .{ .string = "sess_stream_ws_cancel_signal" } },
+        .{ .key = "prompt", .value = .{ .string = "hello cancel" } },
+        .{ .key = "provider_id", .value = .{ .string = "mock_openai_stream_ws_cancel_signal" } },
+    };
+
+    var cancel_requested = std.atomic.Value(bool).init(false);
+    const worker = try std.Thread.spawn(.{}, triggerProjectionCancelLater, .{&cancel_requested});
+    defer worker.join();
+    var sink = sink_model.ArrayListSink.init(std.testing.allocator);
+    defer sink.deinit();
+    try writeWebSocketAgentStream(std.testing.allocator, app, .{
+        .request_id = "stream_req_ws_cancel_signal_01",
+        .params = params[0..],
+        .authority = .admin,
+        .cancel_requested = &cancel_requested,
+    }, sink.asByteSink());
+
+    const bytes = try sink.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    var offset: usize = 0;
+    var saw_done = false;
+    var saw_close = false;
+    while (offset < bytes.len) {
+        const frame = try stream_websocket.parseServerFrame(bytes[offset..]);
+        const payload_start = offset + frame.header_len;
+        const payload_end = payload_start + frame.payload_len;
+        const payload = bytes[payload_start..payload_end];
+
+        if (frame.opcode == 0x8) {
+            saw_close = true;
+            const parsed_close = try stream_websocket.parseClosePayload(payload);
+            try std.testing.expectEqual(@as(?u16, 1000), parsed_close.close_code);
+            try std.testing.expect(parsed_close.close_reason != null);
+            try std.testing.expectEqualStrings("client_cancel", parsed_close.close_reason.?);
+            break;
+        }
+
+        if (std.mem.indexOf(u8, payload, "\"event\":\"done\"") != null) {
+            saw_done = true;
+            try std.testing.expect(std.mem.indexOf(u8, payload, "\"terminalReason\":\"client_cancel\"") != null);
+        }
+
+        offset = payload_end;
+    }
+
+    try std.testing.expect(saw_done);
+    try std.testing.expect(saw_close);
+}
+
+fn triggerProjectionCancelLater(cancel_requested: *std.atomic.Value(bool)) void {
+    std.Thread.sleep(30 * std.time.ns_per_ms);
+    cancel_requested.store(true, .release);
 }

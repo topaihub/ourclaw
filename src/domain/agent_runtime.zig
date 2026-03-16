@@ -26,6 +26,14 @@ pub const AgentRunRequest = struct {
     stream_execution_id: ?[]const u8 = null,
     allow_provider_tools: bool = true,
     max_tool_rounds: usize = 4,
+    tool_call_budget: usize = 4,
+    provider_round_budget: usize = 4,
+    provider_attempt_budget: usize = 8,
+    confirm_tool_risk: bool = false,
+    provider_timeout_secs: u32 = 60,
+    provider_retry_budget: u8 = 0,
+    total_deadline_ms: u64 = 0,
+    cancel_requested: ?*const std.atomic.Value(bool) = null,
     authority: Authority = .operator,
     prompt_profile: prompt_assembly.PromptProfile = .default,
     channel_id: []const u8 = "runtime",
@@ -133,9 +141,28 @@ pub const AgentRuntime = struct {
         const started_at = std.time.milliTimestamp();
         const event_start_index = self.session_store.countEvents(request.session_id);
 
+        try ensureNotCancelled(request);
+
+        if (!framework.Authority.allows(request.authority, .operator) and std.mem.eql(u8, request.provider_id, "openai")) {
+            return error.ProviderPolicyDenied;
+        }
+
         errdefer |run_err| {
             self.publishRunFailure(request.session_id, request.stream_execution_id, run_err) catch {};
         }
+
+        const execution_budget_started_payload = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"phase\":\"execution.budget.started\",\"providerRoundBudget\":{d},\"toolCallBudget\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d}}}",
+            .{ request.provider_round_budget, request.tool_call_budget, request.provider_retry_budget, request.total_deadline_ms },
+        );
+        defer self.allocator.free(execution_budget_started_payload);
+        _ = try self.stream_output.publishWithExecution(
+            request.session_id,
+            request.stream_execution_id,
+            "status.update",
+            execution_budget_started_payload,
+        );
 
         _ = try self.stream_output.publishWithExecution(
             request.session_id,
@@ -159,8 +186,11 @@ pub const AgentRuntime = struct {
         defer self.allocator.free(selected_model);
         var tool_rounds: usize = 0;
         var provider_rounds: usize = 0;
+        var remaining_tool_budget = request.tool_call_budget;
+        var remaining_provider_attempt_budget = request.provider_attempt_budget;
 
         if (request.tool_id) |tool_id| {
+            try ensureNotCancelled(request);
             try self.executeToolRound(
                 request,
                 tool_id,
@@ -170,11 +200,14 @@ pub const AgentRuntime = struct {
                 &tool_id_owned,
                 &tool_result_json,
                 &tool_rounds,
+                &remaining_tool_budget,
             );
         }
 
         while (true) {
+            try ensureExecutionBudget(request, started_at, provider_rounds, remaining_tool_budget);
             provider_rounds += 1;
+            try ensureNotCancelled(request);
             const provider_supports_tools = self.provider_registry.supportsTools(request.provider_id) catch false;
             const provider_tools_enabled = request.allow_provider_tools and provider_supports_tools;
 
@@ -213,21 +246,78 @@ pub const AgentRuntime = struct {
             const messages = try assembled.asProviderMessages(self.allocator);
             defer self.allocator.free(messages);
 
-            var provider_response = try self.provider_registry.chatOnce(self.allocator, .{
+            const selected_model_slice = if (request.model) |model| model else (self.provider_registry.find(request.provider_id) orelse return error.ProviderNotFound).default_model;
+            const provider_chunks = try self.provider_registry.chatStream(self.allocator, .{
                 .provider_id = request.provider_id,
                 .model = request.model,
                 .messages = messages[0..],
                 .enable_tools = provider_tools_enabled,
+                .timeout_secs = request.provider_timeout_secs,
+                .retry_budget = request.provider_retry_budget,
+                .remaining_attempt_budget = &remaining_provider_attempt_budget,
+                .cancel_requested = request.cancel_requested,
             });
-            defer provider_response.deinit(self.allocator);
+            defer {
+                for (provider_chunks) |*chunk| chunk.deinit(self.allocator);
+                self.allocator.free(provider_chunks);
+            }
+
+            try ensureNotCancelled(request);
+            try ensureExecutionBudget(request, started_at, provider_rounds, remaining_tool_budget);
 
             self.allocator.free(selected_model);
-            selected_model = try self.allocator.dupe(u8, provider_response.model);
+            selected_model = try self.allocator.dupe(u8, selected_model_slice);
+
+            var streamed_text: std.ArrayListUnmanaged(u8) = .empty;
+            defer streamed_text.deinit(self.allocator);
+            var streamed_tool_name: ?[]u8 = null;
+            defer if (streamed_tool_name) |value| self.allocator.free(value);
+            var streamed_tool_input: ?[]u8 = null;
+            defer if (streamed_tool_input) |value| self.allocator.free(value);
+            var streamed_finish_reason: ?[]u8 = null;
+            defer if (streamed_finish_reason) |value| self.allocator.free(value);
+
+            for (provider_chunks) |chunk| {
+                try ensureNotCancelled(request);
+                switch (chunk.kind) {
+                    .text_delta => {
+                        const text = chunk.text orelse continue;
+                        try streamed_text.appendSlice(self.allocator, text);
+                        try self.publishProviderTextDelta(request.session_id, request.stream_execution_id, text, "provider_native");
+                    },
+                    .tool_call => {
+                        if (streamed_tool_name == null and chunk.tool_name != null) {
+                            streamed_tool_name = try self.allocator.dupe(u8, chunk.tool_name.?);
+                        }
+                        if (streamed_tool_input == null and chunk.tool_input_json != null) {
+                            streamed_tool_input = try self.allocator.dupe(u8, chunk.tool_input_json.?);
+                        }
+                        const tool_payload = streamed_tool_input orelse chunk.tool_input_json orelse "{}";
+                        const provider_tool_payload = try std.fmt.allocPrint(
+                            self.allocator,
+                            "{{\"round\":{d},\"toolId\":\"{s}\",\"toolInput\":{s},\"streamSource\":\"provider_native\"}}",
+                            .{ provider_rounds, chunk.tool_name orelse streamed_tool_name.?, tool_payload },
+                        );
+                        defer self.allocator.free(provider_tool_payload);
+                        _ = try self.stream_output.publishWithExecution(
+                            request.session_id,
+                            request.stream_execution_id,
+                            "provider.tool.call",
+                            provider_tool_payload,
+                        );
+                    },
+                    .done => {
+                        if (chunk.finish_reason) |finish_reason| {
+                            streamed_finish_reason = try self.allocator.dupe(u8, finish_reason);
+                        }
+                    },
+                }
+            }
 
             const provider_round_completed_payload = try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"round\":{d},\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolRequested\":{s}}}",
-                .{ provider_rounds, request.provider_id, provider_response.model, if (provider_response.tool_name != null) "true" else "false" },
+                "{{\"round\":{d},\"providerId\":\"{s}\",\"model\":\"{s}\",\"toolRequested\":{s},\"finishReason\":\"{s}\",\"streamSource\":\"provider_native\"}}",
+                .{ provider_rounds, request.provider_id, selected_model, if (streamed_tool_name != null) "true" else "false", streamed_finish_reason orelse "stop" },
             );
             defer self.allocator.free(provider_round_completed_payload);
             _ = try self.stream_output.publishWithExecution(
@@ -237,20 +327,8 @@ pub const AgentRuntime = struct {
                 provider_round_completed_payload,
             );
 
-            if (provider_response.tool_name) |provider_tool_name| {
-                const tool_payload = provider_response.tool_input_json orelse "{}";
-                const provider_tool_payload = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"round\":{d},\"toolId\":\"{s}\",\"toolInput\":{s}}}",
-                    .{ provider_rounds, provider_tool_name, tool_payload },
-                );
-                defer self.allocator.free(provider_tool_payload);
-                _ = try self.stream_output.publishWithExecution(
-                    request.session_id,
-                    request.stream_execution_id,
-                    "provider.tool.call",
-                    provider_tool_payload,
-                );
+            if (streamed_tool_name) |provider_tool_name| {
+                const tool_payload = streamed_tool_input orelse "{}";
 
                 if (!provider_tools_enabled) {
                     return error.ProviderToolCallNotAllowed;
@@ -265,16 +343,16 @@ pub const AgentRuntime = struct {
                     &tool_id_owned,
                     &tool_result_json,
                     &tool_rounds,
+                    &remaining_tool_budget,
                 );
+                try ensureNotCancelled(request);
                 continue;
             }
 
-            try self.publishProviderTextDeltas(request.session_id, request.stream_execution_id, provider_response.text);
-
             self.allocator.free(final_text);
-            final_text = try self.allocator.dupe(u8, provider_response.text);
+            final_text = try self.allocator.dupe(u8, streamed_text.items);
 
-            const final_payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{final_text});
+            const final_payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\",\"streamSource\":\"runtime_synthesized\"}}", .{final_text});
             defer self.allocator.free(final_payload);
             _ = try self.stream_output.publishWithExecution(
                 request.session_id,
@@ -291,14 +369,14 @@ pub const AgentRuntime = struct {
         const turn_payload = if (tool_id_owned) |tool_id|
             try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"toolId\":\"{s}\",\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, provider_rounds, tool_id, tool_rounds, provider_latency_ms, recall.entry_count },
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":\"{s}\",\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget, tool_id, tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count },
             )
         else
             try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"toolId\":null,\"toolRounds\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
-                .{ request.provider_id, selected_model, provider_rounds, tool_rounds, provider_latency_ms, recall.entry_count },
+                "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"providerRounds\":{d},\"providerRoundBudget\":{d},\"providerRoundsRemaining\":{d},\"providerAttemptBudget\":{d},\"providerAttemptsRemaining\":{d},\"toolId\":null,\"toolRounds\":{d},\"toolCallBudget\":{d},\"toolCallsRemaining\":{d},\"providerRetryBudget\":{d},\"totalDeadlineMs\":{d},\"providerLatencyMs\":{d},\"memoryEntriesUsed\":{d}}}",
+                .{ request.provider_id, selected_model, provider_rounds, request.provider_round_budget, remainingProviderRounds(request.provider_round_budget, provider_rounds), request.provider_attempt_budget, remaining_provider_attempt_budget, tool_rounds, request.tool_call_budget, remaining_tool_budget, request.provider_retry_budget, request.total_deadline_ms, provider_latency_ms, recall.entry_count },
             );
         defer self.allocator.free(turn_payload);
         _ = try self.stream_output.publishWithExecution(
@@ -366,6 +444,7 @@ pub const AgentRuntime = struct {
         tool_id_owned: *?[]u8,
         tool_result_json: *?[]u8,
         tool_rounds: *usize,
+        remaining_tool_budget: *usize,
     ) anyerror!void {
         if (tool_rounds.* >= request.max_tool_rounds) {
             return error.ToolLoopLimitReached;
@@ -391,6 +470,9 @@ pub const AgentRuntime = struct {
             .tool_id = tool_id,
             .input_json = tool_input_json,
             .authority = request.authority,
+            .confirm_risk = request.confirm_tool_risk,
+            .remaining_budget = remaining_tool_budget,
+            .cancel_requested = request.cancel_requested,
         });
 
         if (tool_id_owned.*) |owned_tool_id| self.allocator.free(owned_tool_id);
@@ -414,22 +496,68 @@ pub const AgentRuntime = struct {
         );
     }
 
-    fn publishProviderTextDeltas(self: *Self, session_id: []const u8, execution_id: ?[]const u8, response_text: []const u8) anyerror!void {
-        var parts = std.mem.splitScalar(u8, response_text, ' ');
-        while (parts.next()) |part| {
-            if (part.len == 0) continue;
-            const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\"}}", .{part});
-            defer self.allocator.free(payload);
-            _ = try self.stream_output.publishWithExecution(session_id, execution_id, "text.delta", payload);
+    fn publishProviderTextDelta(self: *Self, session_id: []const u8, execution_id: ?[]const u8, text: []const u8, stream_source: []const u8) anyerror!void {
+        const payload = try std.fmt.allocPrint(self.allocator, "{{\"text\":\"{s}\",\"streamSource\":\"{s}\"}}", .{ text, stream_source });
+        defer self.allocator.free(payload);
+        _ = try self.stream_output.publishWithExecution(session_id, execution_id, "text.delta", payload);
+    }
+
+    fn ensureNotCancelled(request: AgentRunRequest) anyerror!void {
+        if (request.cancel_requested) |signal| {
+            if (signal.load(.acquire)) return error.StreamCancelled;
         }
     }
 
+    fn ensureExecutionBudget(request: AgentRunRequest, started_at: i64, provider_rounds_completed: usize, remaining_tool_budget: usize) anyerror!void {
+        _ = remaining_tool_budget;
+        if (provider_rounds_completed >= request.provider_round_budget) return error.ProviderRoundBudgetExceeded;
+        if (request.total_deadline_ms > 0) {
+            const elapsed_ms: u64 = @intCast(@max(std.time.milliTimestamp() - started_at, 0));
+            if (elapsed_ms >= request.total_deadline_ms) return error.ExecutionDeadlineExceeded;
+        }
+    }
+
+    fn remainingProviderRounds(provider_round_budget: usize, provider_rounds_used: usize) usize {
+        return if (provider_rounds_used >= provider_round_budget) 0 else provider_round_budget - provider_rounds_used;
+    }
+
     fn publishRunFailure(self: *Self, session_id: []const u8, execution_id: ?[]const u8, run_err: anyerror) anyerror!void {
-        const code = @errorName(run_err);
+        const provider_error = providers.ProviderRegistry.mapError(run_err);
+        const tool_error = @import("../tools/root.zig").ToolRegistry.mapError(run_err);
+        const provider_like = !std.mem.eql(u8, provider_error.code, "PROVIDER_EXECUTION_FAILED") or run_err == error.ProviderPolicyDenied;
+        const code = if (run_err == error.ProviderPolicyDenied)
+            "PROVIDER_POLICY_DENIED"
+        else if (run_err == error.ProviderAttemptBudgetExceeded)
+            "PROVIDER_ATTEMPT_BUDGET_EXCEEDED"
+        else if (run_err == error.ExecutionDeadlineExceeded)
+            "EXECUTION_DEADLINE_EXCEEDED"
+        else if (run_err == error.ProviderRoundBudgetExceeded)
+            "PROVIDER_ROUND_BUDGET_EXCEEDED"
+        else if (provider_like)
+            provider_error.code
+        else if (!std.mem.eql(u8, tool_error.code, "TOOL_EXECUTION_FAILED"))
+            tool_error.code
+        else
+            @errorName(run_err);
+        const message = if (run_err == error.ProviderPolicyDenied)
+            "provider use is denied by policy"
+        else if (run_err == error.ProviderAttemptBudgetExceeded)
+            "provider attempt budget has been exhausted"
+        else if (run_err == error.ExecutionDeadlineExceeded)
+            "execution deadline has been exceeded"
+        else if (run_err == error.ProviderRoundBudgetExceeded)
+            "provider round budget has been exhausted"
+        else if (provider_like)
+            provider_error.message
+        else if (!std.mem.eql(u8, tool_error.code, "TOOL_EXECUTION_FAILED"))
+            tool_error.message
+        else
+            @errorName(run_err);
+        const stage = if (provider_like) "provider" else "agent_runtime";
         const payload = try std.fmt.allocPrint(
             self.allocator,
-            "{{\"stage\":\"agent_runtime\",\"errorCode\":\"{s}\",\"message\":\"{s}\"}}",
-            .{ code, code },
+            "{{\"stage\":\"{s}\",\"errorCode\":\"{s}\",\"message\":\"{s}\"}}",
+            .{ stage, code, message },
         );
         defer self.allocator.free(payload);
         _ = self.stream_output.publishWithExecution(session_id, execution_id, "error", payload) catch {};
@@ -491,6 +619,9 @@ test "agent runtime runs prompt through provider and optional tool" {
     try std.testing.expect(result.memory_entries_used >= 1);
     try std.testing.expect(result.session_event_count >= 3);
     try std.testing.expect(event_bus.count() >= 4);
+
+    const events = session_store.find("sess_agent_01").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 2].payload_json, "runtime_synthesized") != null or hasEventPayload(events, "text.delta", "provider_native"));
 }
 
 test "agent runtime supports provider to tool to provider loop" {
@@ -539,6 +670,7 @@ test "agent runtime supports provider to tool to provider loop" {
     try std.testing.expect(hasEventKind(events, "tool.loop.requested"));
     try std.testing.expect(hasEventKind(events, "tool.loop.completed"));
     try std.testing.expect(hasEventKind(events, "session.turn.completed"));
+    try std.testing.expect(hasEventPayload(events, "provider.tool.call", "provider_native"));
 
     var snapshot = try session_store.snapshotMeta(std.testing.allocator, "sess_agent_loop");
     defer snapshot.deinit(std.testing.allocator);
@@ -584,6 +716,373 @@ test "agent runtime writes failed turn when tool loop limit is hit" {
     try std.testing.expectEqualStrings("ToolLoopLimitReached", snapshot.last_error_code.?);
 }
 
+test "agent runtime writes provider timeout failure with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_timeout",
+        .label = "Mock OpenAI Timeout",
+        .endpoint = "mock://openai/chat_timeout",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderTimeout, runtime.run(.{
+        .session_id = "sess_provider_timeout",
+        .prompt = "hello",
+        .provider_id = "mock_openai_timeout",
+    }));
+
+    const events = session_store.find("sess_provider_timeout").?.events.items;
+    try std.testing.expect(hasEventKind(events, "session.turn.failed"));
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_TIMEOUT") != null);
+}
+
+test "agent runtime emits provider native stream deltas and finish reason" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_stream_native",
+        .label = "Mock OpenAI Stream Native",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    var result = try runtime.run(.{
+        .session_id = "sess_stream_native",
+        .prompt = "hello",
+        .provider_id = "mock_openai_stream_native",
+    });
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("mock openai response", result.response_text);
+    const events = session_store.find("sess_stream_native").?.events.items;
+    try std.testing.expect(hasEventPayload(events, "text.delta", "provider_native"));
+    try std.testing.expect(hasEventPayload(events, "provider.round.completed", "\"finishReason\":\"stop\""));
+    try std.testing.expect(hasEventPayload(events, "final.result", "runtime_synthesized"));
+}
+
+test "agent runtime writes malformed stream failure with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_stream_malformed_runtime",
+        .label = "Mock OpenAI Stream Malformed",
+        .endpoint = "mock://openai/chat_stream_malformed",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderMalformedResponse, runtime.run(.{
+        .session_id = "sess_stream_malformed",
+        .prompt = "hello",
+        .provider_id = "mock_openai_stream_malformed_runtime",
+    }));
+
+    const events = session_store.find("sess_stream_malformed").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_MALFORMED_RESPONSE") != null);
+}
+
+test "agent runtime writes upstream close stream failure with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_stream_upstream_close_runtime",
+        .label = "Mock OpenAI Stream Upstream Close",
+        .endpoint = "mock://openai/chat_stream_upstream_close",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderHttpFailed, runtime.run(.{
+        .session_id = "sess_stream_upstream_close",
+        .prompt = "hello",
+        .provider_id = "mock_openai_stream_upstream_close_runtime",
+    }));
+
+    const events = session_store.find("sess_stream_upstream_close").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_HTTP_FAILED") != null);
+}
+
+test "agent runtime writes retry exhausted stream failure with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_stream_retry_exhausted_runtime",
+        .label = "Mock OpenAI Stream Retry Exhausted",
+        .endpoint = "mock://openai/chat_stream_retry_exhausted",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderRetryExhausted, runtime.run(.{
+        .session_id = "sess_stream_retry_exhausted",
+        .prompt = "hello",
+        .provider_id = "mock_openai_stream_retry_exhausted_runtime",
+        .provider_retry_budget = 1,
+    }));
+
+    const events = session_store.find("sess_stream_retry_exhausted").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_RETRY_EXHAUSTED") != null);
+}
+
+test "agent runtime writes provider round budget exhaustion with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_round_budget",
+        .label = "Mock OpenAI Round Budget",
+        .endpoint = "mock://openai/chat",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .supports_tools = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderRoundBudgetExceeded, runtime.run(.{
+        .session_id = "sess_round_budget_exhausted",
+        .prompt = "CALL_TOOL:echo",
+        .provider_id = "mock_openai_round_budget",
+        .provider_round_budget = 1,
+    }));
+
+    const events = session_store.find("sess_round_budget_exhausted").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_ROUND_BUDGET_EXCEEDED") != null);
+}
+
+test "agent runtime writes execution deadline exhaustion with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_deadline",
+        .label = "Mock OpenAI Deadline",
+        .endpoint = "mock://openai/chat_cancel_wait",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ExecutionDeadlineExceeded, runtime.run(.{
+        .session_id = "sess_deadline_exhausted",
+        .prompt = "hello",
+        .provider_id = "mock_openai_deadline",
+        .total_deadline_ms = 1,
+    }));
+
+    const events = session_store.find("sess_deadline_exhausted").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "EXECUTION_DEADLINE_EXCEEDED") != null);
+}
+
+test "agent runtime writes provider attempt budget exhaustion with mapped code" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_attempt_budget_runtime",
+        .label = "Mock OpenAI Attempt Budget",
+        .endpoint = "mock://openai/chat_retry_once",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ProviderAttemptBudgetExceeded, runtime.run(.{
+        .session_id = "sess_attempt_budget_exhausted",
+        .prompt = "hello",
+        .provider_id = "mock_openai_attempt_budget_runtime",
+        .provider_retry_budget = 1,
+        .provider_attempt_budget = 0,
+    }));
+
+    const events = session_store.find("sess_attempt_budget_exhausted").?.events.items;
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 1].payload_json, "PROVIDER_ATTEMPT_BUDGET_EXCEEDED") != null);
+}
+
+test "agent runtime enforces tool budget and risk confirmation" {
+    var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+
+    try std.testing.expectError(error.ToolBudgetExceeded, runtime.run(.{
+        .session_id = "sess_tool_budget",
+        .prompt = "hello",
+        .provider_id = "provider_unused",
+        .tool_id = "echo",
+        .tool_input_json = "{\"message\":\"hello\"}",
+        .tool_call_budget = 0,
+    }));
+
+    try std.testing.expectError(error.ToolRiskConfirmationRequired, runtime.run(.{
+        .session_id = "sess_tool_risk",
+        .prompt = "hello",
+        .provider_id = "provider_unused",
+        .tool_id = "shell",
+        .tool_input_json = "{\"command\":\"echo hello\"}",
+        .authority = .admin,
+    }));
+}
+
 test "agent runtime injects system and tools prompt into provider payload" {
     var provider_registry = providers.ProviderRegistry.init(std.testing.allocator);
     defer provider_registry.deinit();
@@ -627,6 +1126,14 @@ test "agent runtime injects system and tools prompt into provider payload" {
 fn hasEventKind(events: []const session_state.SessionEvent, kind: []const u8) bool {
     for (events) |event| {
         if (std.mem.eql(u8, event.kind, kind)) return true;
+    }
+    return false;
+}
+
+fn hasEventPayload(events: []const session_state.SessionEvent, kind: []const u8, needle: []const u8) bool {
+    for (events) |event| {
+        if (!std.mem.eql(u8, event.kind, kind)) continue;
+        if (std.mem.indexOf(u8, event.payload_json, needle) != null) return true;
     }
     return false;
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const HttpResponse = struct {
     status_code: u16,
@@ -15,8 +16,20 @@ pub fn curlJsonPost(
     headers: []const []const u8,
     body: []const u8,
     timeout_secs: u32,
+    cancel_requested: ?*const std.atomic.Value(bool),
 ) anyerror!HttpResponse {
-    return curlRequest(allocator, "POST", url, headers, body, timeout_secs);
+    return curlRequestWithOptions(allocator, "POST", url, headers, body, timeout_secs, cancel_requested, false);
+}
+
+pub fn curlJsonPostStreaming(
+    allocator: std.mem.Allocator,
+    url: []const u8,
+    headers: []const []const u8,
+    body: []const u8,
+    timeout_secs: u32,
+    cancel_requested: ?*const std.atomic.Value(bool),
+) anyerror!HttpResponse {
+    return curlRequestWithOptions(allocator, "POST", url, headers, body, timeout_secs, cancel_requested, true);
 }
 
 pub fn curlRequest(
@@ -26,7 +39,25 @@ pub fn curlRequest(
     headers: []const []const u8,
     body: ?[]const u8,
     timeout_secs: u32,
+    cancel_requested: ?*const std.atomic.Value(bool),
 ) anyerror!HttpResponse {
+    return curlRequestWithOptions(allocator, method, url, headers, body, timeout_secs, cancel_requested, false);
+}
+
+fn curlRequestWithOptions(
+    allocator: std.mem.Allocator,
+    method: []const u8,
+    url: []const u8,
+    headers: []const []const u8,
+    body: ?[]const u8,
+    timeout_secs: u32,
+    cancel_requested: ?*const std.atomic.Value(bool),
+    no_buffer: bool,
+) anyerror!HttpResponse {
+    if (cancel_requested) |signal| {
+        if (signal.load(.acquire)) return error.StreamCancelled;
+    }
+
     if (std.mem.eql(u8, url, "mock://openai/chat")) {
         if (body) |payload| {
             if (std.mem.indexOf(u8, payload, "PROMPT_ASSEMBLY_PROBE") != null and
@@ -72,6 +103,30 @@ pub fn curlRequest(
         };
     }
 
+    if (std.mem.eql(u8, url, "mock://http/cancel_wait")) {
+        var index: usize = 0;
+        while (index < 20) : (index += 1) {
+            if (cancel_requested) |signal| {
+                if (signal.load(.acquire)) return error.StreamCancelled;
+            }
+            std.Thread.sleep(10 * std.time.ns_per_ms);
+        }
+        return .{
+            .status_code = 200,
+            .body = try allocator.dupe(u8, "{\"mock\":\"cancel_wait_completed\"}"),
+        };
+    }
+
+    if (std.mem.eql(u8, url, "mock://openai/chat_stream_sse")) {
+        return .{
+            .status_code = 200,
+            .body = try allocator.dupe(
+                u8,
+                "data: {\"id\":\"chatcmpl_sse_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_sse_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"mock \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_sse_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"openai \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_sse_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"response\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+            ),
+        };
+    }
+
     if (std.mem.startsWith(u8, url, "mock://http/")) {
         return .{
             .status_code = 200,
@@ -85,6 +140,10 @@ pub fn curlRequest(
     argc += 1;
     argv_buf[argc] = "-sS";
     argc += 1;
+    if (no_buffer) {
+        argv_buf[argc] = "-N";
+        argc += 1;
+    }
     argv_buf[argc] = "-X";
     argc += 1;
     argv_buf[argc] = method;
@@ -125,6 +184,17 @@ pub fn curlRequest(
     child.stderr_behavior = .Ignore;
     try child.spawn();
 
+    var watcher_done = std.atomic.Value(bool).init(false);
+    var watcher_triggered = std.atomic.Value(bool).init(false);
+    const watcher = if (cancel_requested) |signal|
+        try std.Thread.spawn(.{}, cancelWatcherMain, .{ child.id, signal, &watcher_done, &watcher_triggered })
+    else
+        null;
+    defer {
+        watcher_done.store(true, .release);
+        if (watcher) |thread| thread.join();
+    }
+
     if (body) |payload| {
         if (child.stdin) |stdin_file| {
             try stdin_file.writeAll(payload);
@@ -133,9 +203,19 @@ pub fn curlRequest(
         }
     }
 
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 1024 * 1024);
+    const stdout = child.stdout.?.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
+        if (watcher_triggered.load(.acquire)) return error.StreamCancelled;
+        return err;
+    };
     errdefer allocator.free(stdout);
-    const term = try child.wait();
+    const term = child.wait() catch |err| {
+        if (watcher_triggered.load(.acquire)) return error.StreamCancelled;
+        return err;
+    };
+    if (watcher_triggered.load(.acquire)) {
+        allocator.free(stdout);
+        return error.StreamCancelled;
+    }
     switch (term) {
         .Exited => |code| if (code != 0) return error.CurlFailed,
         else => return error.CurlFailed,
@@ -154,8 +234,37 @@ pub fn curlRequest(
 }
 
 test "http util returns mock openai response" {
-    var response = try curlJsonPost(std.testing.allocator, "mock://openai/chat", &.{}, "{}", 30);
+    var response = try curlJsonPost(std.testing.allocator, "mock://openai/chat", &.{}, "{}", 30, null);
     defer response.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u16, 200), response.status_code);
     try std.testing.expect(std.mem.indexOf(u8, response.body, "mock openai response") != null);
+}
+
+test "http util honours cancellation signal for mock wait endpoint" {
+    var cancelled = std.atomic.Value(bool).init(true);
+    try std.testing.expectError(error.StreamCancelled, curlRequest(std.testing.allocator, "GET", "mock://http/cancel_wait", &.{}, null, 30, &cancelled));
+}
+
+fn cancelWatcherMain(
+    child_id: std.process.Child.Id,
+    cancel_requested: *const std.atomic.Value(bool),
+    done: *std.atomic.Value(bool),
+    triggered: *std.atomic.Value(bool),
+) void {
+    while (!done.load(.acquire)) {
+        if (cancel_requested.load(.acquire)) {
+            triggered.store(true, .release);
+            terminateChild(child_id);
+            return;
+        }
+        std.Thread.sleep(5 * std.time.ns_per_ms);
+    }
+}
+
+fn terminateChild(child_id: std.process.Child.Id) void {
+    switch (builtin.os.tag) {
+        .windows => std.os.windows.TerminateProcess(child_id, 1) catch {},
+        .wasi => {},
+        else => std.posix.kill(child_id, std.posix.SIG.TERM) catch {},
+    }
 }

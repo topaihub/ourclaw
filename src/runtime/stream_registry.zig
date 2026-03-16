@@ -303,6 +303,7 @@ fn executionWorkerMain(execution: *StreamExecution) void {
         .tool_id = execution.tool_id,
         .tool_input_json = execution.tool_input_json,
         .stream_execution_id = execution.id,
+        .cancel_requested = &execution.cancel_requested,
         .authority = execution.authority,
     }) catch |err| {
         execution.appendFailureAndDone(err) catch {};
@@ -318,7 +319,7 @@ fn executionWorkerMain(execution: *StreamExecution) void {
 fn mapTerminalError(execution: *StreamExecution, err: anyerror) struct { []const u8, []const u8, u16, []const u8 } {
     _ = execution;
     return switch (err) {
-        error.StreamCancelled => .{ "StreamCancelled", "client_cancel", 1000, "cancelled" },
+        error.StreamCancelled => .{ "StreamCancelled", "client_cancel", 1000, "client_cancel" },
         error.StreamBackpressureExceeded => .{ "StreamBackpressureExceeded", "backpressure", 1008, "backpressure" },
         error.StreamClientDisconnected => .{ "StreamClientDisconnected", "client_disconnect", 1001, "client_disconnect" },
         else => .{ @errorName(err), "error", 1011, @errorName(err) },
@@ -418,4 +419,110 @@ fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
         }
     }
     try writer.writeByte('"');
+}
+
+test "stream registry requestCancel propagates into provider execution" {
+    var provider_registry = agent_runtime.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+    var secrets = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
+    defer secrets.deinit();
+    try secrets.put("openai:api_key", "test-key");
+    provider_registry.setSecretStore(&secrets);
+    try provider_registry.register(.{
+        .id = "mock_openai_cancel_wait_registry",
+        .label = "Mock OpenAI Cancel Wait",
+        .endpoint = "mock://openai/chat_cancel_wait",
+        .default_model = "gpt-4o-mini",
+        .api_key_secret_ref = "openai:api_key",
+        .supports_streaming = true,
+        .health_json = "{}",
+    });
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = agent_runtime.MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = agent_runtime.SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = @import("../domain/tool_orchestrator.zig").ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+    var registry = StreamRegistry.init(std.testing.allocator, &runtime, &output);
+    defer registry.deinit();
+
+    const execution = try registry.startExecution(.{
+        .request_id = "req_stream_cancel_provider",
+        .session_id = "sess_stream_cancel_provider",
+        .prompt = "hello",
+        .provider_id = "mock_openai_cancel_wait_registry",
+        .authority = .admin,
+    });
+
+    std.Thread.sleep(20 * std.time.ns_per_ms);
+    execution.requestCancel();
+    execution.requestCancel();
+
+    var attempts: usize = 0;
+    while (attempts < 100 and !execution.terminalSnapshot().completed) : (attempts += 1) {
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+
+    const terminal = execution.terminalSnapshot();
+    try std.testing.expect(terminal.completed);
+    try std.testing.expectEqual(@as(u16, 1000), terminal.close_code);
+    try std.testing.expectEqualStrings("client_cancel", terminal.close_reason.?);
+
+    const events = try execution.snapshotAfter(std.testing.allocator, 0);
+    defer {
+        for (events) |*event| event.deinit(std.testing.allocator);
+        std.testing.allocator.free(events);
+    }
+    try std.testing.expect(events.len >= 2);
+    try std.testing.expect(std.mem.indexOf(u8, events[events.len - 2].payload_json, "StreamCancelled") != null);
+}
+
+test "stream registry requestCancel propagates into tool execution" {
+    var provider_registry = agent_runtime.ProviderRegistry.init(std.testing.allocator);
+    defer provider_registry.deinit();
+
+    var tool_registry = @import("../tools/root.zig").ToolRegistry.init(std.testing.allocator);
+    defer tool_registry.deinit();
+    try tool_registry.registerBuiltins();
+
+    var memory = agent_runtime.MemoryRuntime.init(std.testing.allocator);
+    defer memory.deinit();
+    var session_store = agent_runtime.SessionStore.init(std.testing.allocator);
+    defer session_store.deinit();
+    var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    defer output.deinit();
+    var orchestrator = @import("../domain/tool_orchestrator.zig").ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
+    var registry = StreamRegistry.init(std.testing.allocator, &runtime, &output);
+    defer registry.deinit();
+
+    const execution = try registry.startExecution(.{
+        .request_id = "req_stream_cancel_tool",
+        .session_id = "sess_stream_cancel_tool",
+        .prompt = "hello",
+        .provider_id = "provider_unused",
+        .tool_id = "http_request",
+        .tool_input_json = "{\"url\":\"mock://http/cancel_wait\"}",
+        .authority = .operator,
+    });
+
+    std.Thread.sleep(20 * std.time.ns_per_ms);
+    execution.requestCancel();
+    execution.requestCancel();
+
+    var attempts: usize = 0;
+    while (attempts < 100 and !execution.terminalSnapshot().completed) : (attempts += 1) {
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+
+    const terminal = execution.terminalSnapshot();
+    try std.testing.expect(terminal.completed);
+    try std.testing.expectEqualStrings("client_cancel", terminal.close_reason.?);
 }
