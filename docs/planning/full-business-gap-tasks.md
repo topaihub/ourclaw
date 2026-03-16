@@ -1,10 +1,11 @@
 # ourclaw 完整业务版 GAP Tasks
 
-> 使用说明（2026-03-13）：本文档保留为“历史 FB 任务拆分与阶段判断”参考，但其中部分状态未必已经与最新代码完全同步。当前如需继续推进主线实现，请优先使用：
+> 使用说明（2026-03-16）：本文档保留为“历史 FB 任务拆分与阶段判断”参考，但其中状态**不再保证**与当前代码同步。当前如需继续推进主线实现，请优先使用：
 >
 > - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
 >
-> 如需理解旧任务编号与阶段背景，可把本文档与 `session-resume.md`、新 spec 一起交叉阅读。
+> 如需理解旧任务编号与阶段背景，可把本文档与 `session-resume.md`、新 spec 一起交叉阅读；不要再把本文档当成 live checklist 或默认续做入口。
 
 ## 1. 目标
 

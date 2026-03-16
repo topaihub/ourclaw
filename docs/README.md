@@ -1,10 +1,11 @@
 # ourclaw 文档
 
-> 入口说明（2026-03-13）：如果目标是继续推进“基于 `framework` 完成 `ourclaw` 主线开发”，当前优先执行入口请使用：
+> 入口说明（2026-03-16）：如果目标是继续推进“基于 `framework` 完成 `ourclaw` 主线开发”，当前优先执行入口请使用：
 >
 > - `ourclaw/docs/specs/framework-based-ourclaw/requirements.md`
 > - `ourclaw/docs/specs/framework-based-ourclaw/design.md`
 > - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`（当 `tasks.md` 显示主线已完成时）
 >
 > `architecture/` 与 `planning/` 目录仍保留重要历史分析与阶段记录，但其中部分状态描述可能滞后于当前代码；后续大模型执行时，应优先以新 spec 为主，以旧文档为背景参考。
 
@@ -28,8 +29,10 @@
 - `ourclaw/docs/planning/implementation-epics.md`：建议的实施阶段、Epic 拆分和验收重点
 - `ourclaw/docs/planning/llm-task-breakdown.md`：面向大模型执行的任务拆分建议
 - `ourclaw/docs/planning/session-resume.md`：会话中断后的续接记录、当前阶段判断和最近阻塞点
+- `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`：已完成主线任务归档
+- `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`：主线第一阶段完成后的下一阶段 backlog
 - `ourclaw/docs/planning/nullclaw-gap-analysis.md`：`nullclaw` 能力盘点、`ourclaw` 差距矩阵和面向大模型的 gap task 清单
-- `ourclaw/docs/planning/full-business-gap-tasks.md`：面向完整业务版的 FB 任务清单与建议执行顺序
+- `ourclaw/docs/planning/full-business-gap-tasks.md`：历史 FB 任务清单（仅供背景参考，不作为当前主入口）
 - `ourclaw/docs/planning/restart-handoff.md`：IDE / 会话重启后给大模型快速恢复上下文的超短续做指引
 
 ## 当前业务层进展

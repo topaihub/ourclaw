@@ -5,10 +5,17 @@
 > - `ourclaw/docs/specs/framework-based-ourclaw/requirements.md`
 > - `ourclaw/docs/specs/framework-based-ourclaw/design.md`
 > - `ourclaw/docs/specs/framework-based-ourclaw/tasks.md`
+> - `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
 >
 > 本文档更适合回答“之前做到哪了”，不再作为唯一的开发任务入口。
+>
+> 说明（2026-03-16）：原主线 `tasks.md` 明细已归档到：
+>
+> - `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`
 
 本文档用于在会话中断时快速恢复上下文。
+
+如果你现在是要给新会话快速续接，请优先看：`ourclaw/docs/specs/framework-based-ourclaw/tasks.md`、`ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`、`docs/planning/current-task-board.md`
 
 后续如果有新的设计判断、任务拆分、阶段结论或阻塞分析，应优先更新本文档或同目录对应专题文档，而不是只留在对话上下文里。
 
@@ -453,6 +460,88 @@
   - `agent_runtime` 已把这些上下文接入 prompt 组装阶段
   - prompt assembly 单测已覆盖 profile / identity / mode / session snapshot 文本变体
   - 验证：`zig build test --summary all` 通过（120/120）
+
+- **M2-09 已完成（2026-03-16）**：
+  - `memory_runtime.zig` 已完成 richer ranking metadata 收口：`rank / ts_unix_ms / embedding_strategy / ranking_reason / embedding_score / keyword_overlap / kind_weight` 现已稳定参与命中排序与命令输出
+  - `providers/root.zig` 已新增 `EmbeddingProvider` 抽象；`ProviderRegistry` 现可作为 provider-backed embeddings 接口被业务层消费，而不是让 memory runtime 直接依赖 registry 细节
+  - `memory_runtime.zig` 在保留本地 `local_bow_v1` fallback 的同时，现可通过 provider abstraction 走真实 embedding 请求路径，并把 `provider_proxy_v1` 稳定回写到 retrieval 结果
+  - `config/field_registry.zig`、`config_runtime_hooks.zig`、`runtime/app_context.zig` 的 `memory.embedding_provider` / `memory.embedding_model` 接线已真正驱动 provider-backed embeddings 行为，而不再只是元数据回显
+  - `providers/openai_compatible.zig`、`tests/smoke.zig` 与 `src/domain/memory_runtime.zig` 单测已覆盖 provider-backed embeddings 路径
+  - 顺手修复了 `memory_runtime.zig` 中 `embedQuery` / `buildEmbedding` 的编译漂移
+  - 验证：`zig build test --summary all` 通过（123/123）
+
+- **M2-10 已完成（2026-03-16）**：
+  - `providers/root.zig` 已把 provider 调用扩成带 `timeout_secs / retry_budget` 的最小生产语义请求，并补 `ProviderErrorInfo` / `mapError()` 错误分类
+  - `openai_compatible.zig` 已接收 provider timeout，并补 mock timeout / retry-once 路径，确保 provider retry / timeout 回归可验证
+  - `tools/root.zig` 已补 `ToolInvokePolicy`；高风险工具默认需要显式风险确认，同时新增 `TOOL_BUDGET_EXCEEDED` / `TOOL_RISK_CONFIRMATION_REQUIRED` 错误映射
+  - `tool_orchestrator.zig` 已补 tool budget、risk confirmation 与 `tool.call.audit` 事件，开始把 started / denied / finished 等执行语义稳定投影到 session/stream
+  - `agent_runtime.zig`、`agent_run.zig`、`agent_stream.zig` 已将 provider timeout/retry 与 tool budget/risk 参数真正接入运行链路
+  - `tests/smoke.zig` 与 provider/tool/runtime 单测已覆盖 retry / timeout / denied / budget 路径
+  - 验证：`zig build test --summary all` 通过（132/132）
+
+- **任务入口已切换（2026-03-16）**：
+  - 原主线 `tasks.md` 的长篇已完成任务明细已归档到 `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`
+  - 当前 `ourclaw/docs/specs/framework-based-ourclaw/tasks.md` 只保留“主线已完成 + 入口跳转”语义
+  - 后续继续推进 `ourclaw` 时，应优先查看 `ourclaw/docs/specs/framework-based-ourclaw/next-stage-backlog.md`
+
+- **B1 已完成（2026-03-16）**：
+  - `runtime/stream_registry.zig` 已把 `StreamExecution.cancel_requested` 真正传入 `agent_runtime.runStream()`，execution cancel 不再只停在 projector 层
+  - `agent_runtime.zig` 已把取消信号贯通到 provider/tool 调用前后；provider/tool 在感知取消后统一返回 `error.StreamCancelled`
+  - `providers/root.zig`、`providers/openai_compatible.zig` 已支持 provider 级 `cancel_requested`，并补 mock provider cancel-wait 路径
+  - `tools/root.zig`、`tools/http_request.zig`、`tools/shell.zig`、`tools/file_read.zig` 已支持 tool execution context / cancel signal；`compat/http_util.zig` 已补 cancellable mock wait 路径
+  - `interfaces/stream_projection.zig` 现在会把 `client_closed` 一并转成 execution cancel，补齐 client disconnect → execution cancel 链
+  - `stream_registry.zig` 与 provider/tool/http_util 单测已覆盖 provider cancel、tool cancel 与 execution cancel 路径
+  - 验证：`zig build test --summary all` 通过（141/141）
+
+- **B2 已完成（2026-03-16）**：
+  - `providers/root.zig` 的 `chatStream()` 已改为独立 provider 原生流入口，不再从 `chatOnce()` 派生伪流式 chunk
+  - `providers/openai_compatible.zig` 已支持 provider-native text delta / tool-call / done 语义，并补 malformed / upstream close / retry exhausted 回归；同时接入了一版最小真实 SSE 解析路径
+  - `agent_runtime.zig` 已切到消费 `chatStream()`，并把 `provider_native` 与 `runtime_synthesized` 明确打到事件链上
+  - `interfaces/stream_projection.zig` 在 text-delta 聚合后仍保留 `streamSource`，保证投影侧可以区分 provider 原生流与 runtime 合成事件
+  - `tests/smoke.zig` 与 provider/runtime/projection 单测已覆盖 stream delta、tool-call mid-stream、upstream close、malformed stream、retry exhaustion
+  - 验证：`zig build test --summary all` 通过（152/152）
+
+- **B3 第一子步已完成（2026-03-16）**：
+- **B3 已完成（2026-03-16）**：
+  - `agent_runtime.zig` 已补 execution budget 第一版骨架：`provider_round_budget`、`provider_attempt_budget`、`tool_call_budget`、`provider_retry_budget`、`total_deadline_ms`
+  - `providers/root.zig` 已支持 provider attempt budget，使 provider budget 不再只等价于 round budget 或 retry budget
+  - `session_state.zig` 与 `session_get.zig` 已开始沉淀 provider/tool/deadline 预算状态，session 侧可以直接查看预算消耗与剩余
+  - `agent_run.zig` / `agent_stream.zig` 已开放 budget/deadline 参数入口
+  - `tests/smoke.zig` 与 runtime/provider 单测已覆盖 round budget / attempt budget / deadline / retry exhaustion 路径
+  - 验证：`zig build test --summary all` 通过（157/157）
+
+- **B5 已完成（2026-03-16）**：
+  - `ourclaw/docs/contracts/manager-runtime-surface.md` 已补第一版 manager-facing 稳定字段矩阵，先锁 `gateway.status`、`service.status`、`heartbeat.status`、`session.get`
+  - `ourclaw-manager/src/runtime_client/types.zig` 已新增 typed contract snapshot 与轻量 parser，manager runtime client 不再只有原始 `success_json` 壳
+  - `ourclaw-manager/src/runtime_client/status_client.zig`、`memory_client.zig`、`diagnostics_client.zig`、`events_client.zig` 已新增 typed reader 入口
+  - `ourclaw-manager/src/view_models/status_view_model.zig`、`diagnostics_view_model.zig`、`logs_view_model.zig` 已开始持有 typed snapshot，而不再只保留原始 JSON
+  - `ourclaw-manager/docs/planning/runtime-contract-entry.md` 已把新 contract 文档纳入 manager runtime 接入入口
+  - 验证：`ourclaw-manager` 执行 `zig build test --summary all` 通过（19/19）
+
+- **B6 已完成（2026-03-16）**：
+  - 已开始清理主入口与历史文档漂移：`current-task-board.md` 现在真实反映当前 backlog，而不再停留在 `B1/B2` 语境
+  - `ourclaw/docs/README.md`、`ourclaw/docs/planning/full-business-gap-tasks.md` 已明确历史参考定位
+  - `workspace-mainline-roadmap.md`、`task-001-execution-prompt.md` 已从旧任务源切到当前 spec / backlog 入口
+  - `README.md`、`WORKSPACE_CONTEXT.md`、`AGENTS.md`、`restart-handoff.md` 现已统一默认入口顺序到 `tasks.md -> next-stage-backlog.md -> current-task-board.md`
+  - `next-session-handoff-2026-03-13.md` 已降级为 dated handoff 历史快照
+
+- **B4 已完成（2026-03-16）**：
+  - `domain/skills.zig` 已补 `source / last_run_status / last_error_code` 与健康计算，`skills` 域不再只是最小静态 registry
+  - `skills.install / skills.run / skills.list` 现已具备来源、健康状态、错误映射与 richer operational state 输出
+  - `skills.run` 现会在 entry command 缺失时返回 `SKILL_ENTRY_COMMAND_MISSING`，并把失败状态稳定回写到 skill registry
+  - `ourclaw` 测试已更新并通过：`zig build test --summary all`（158/158）
+  - `skills` 已经满足 B4 单域完成定义；下一步转入 `tunnel`
+  - `tunnel_runtime.zig` 现已补 endpoint 探测、健康状态、最近错误与 probe 计数；`tunnel.activate / tunnel.status / tunnel.deactivate` 已具备更真实的 lifecycle / health / error 语义
+  - `ourclaw` 测试已再次更新并通过：`zig build test --summary all`（159/159）
+  - `tunnel` 也已满足 B4 单域完成定义；下一步转入 `mcp`
+  - `mcp_runtime.zig` 现已补 transport/endpoint 探测、健康状态、最近错误与 probe 计数；`mcp.register / mcp.list` 已具备更真实的 lifecycle / health / error 语义
+  - `ourclaw` 测试已再次更新并通过：`zig build test --summary all`（161/161）
+  - `mcp` 已满足 B4 单域完成定义；下一步转入 `hardware / peripheral`
+  - `hardware.zig` / `peripherals.zig` 现已补 kind 探测/校验、健康状态、最近错误与 probe 计数；`hardware.register / peripheral.register / hardware.list` 已具备更真实的 inventory / health / error 语义
+  - `ourclaw` 测试已再次更新并通过：`zig build test --summary all`（163/163）
+  - `voice_runtime.zig` 已新增 voice runtime，并补音频外设绑定、健康状态、最近错误与最小 lifecycle；`voice.attach / voice.status / voice.detach` 已接入主命令面
+  - `ourclaw` 测试已再次更新并通过：`zig build test --summary all`（165/165）
+  - `voice` 已满足 B4 单域完成定义；`B4` 现已整体完成
 
 ## 续写约定
 
