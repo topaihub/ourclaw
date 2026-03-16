@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const framework = @import("framework");
 const field_registry = @import("../config/field_registry.zig");
 const services_model = @import("../domain/services.zig");
+const capability_manifest = @import("../runtime/capability_manifest.zig");
 
 const APP_NAME = "ourclaw";
 const APP_VERSION = "0.1.0";
@@ -43,6 +44,10 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const registries_ready = provider_count > 0 and channel_count > 0 and tool_count > 0 and command_count > 0;
     const defaults_loaded = config_entry_count >= 5;
     const status = if (registries_ready and defaults_loaded and secret_count > 0) "ok" else "degraded";
+    var built_manifest = try capability_manifest.build(ctx.allocator, services);
+    defer built_manifest.deinit(ctx.allocator);
+    const capabilities_json = try framework.renderCapabilityManifestJson(ctx.allocator, built_manifest.asManifest());
+    defer ctx.allocator.free(capabilities_json);
 
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(ctx.allocator);
@@ -77,21 +82,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendUnsignedField(writer, "completedTasks", completed_tasks, false);
     try writer.writeByte('}');
 
-    try writer.writeAll(",\"capabilities\":{");
-    try appendStringArrayField(writer, "adapters", &.{ "cli", "bridge", "http" }, true);
-    try appendProviderIds(writer, services, false);
-    try appendChannelIds(writer, services, false);
-    try appendToolIds(writer, services, false);
-    try appendCommandIds(writer, services, false);
-    try appendBoolField(writer, "supportsAsyncTasks", true, false);
-    try appendBoolField(writer, "supportsEventBus", true, false);
-    try appendBoolField(writer, "supportsObservers", true, false);
-    try appendBoolField(writer, "supportsConfigWrite", true, false);
-    try appendBoolField(writer, "supportsSecrets", true, false);
-    try appendBoolField(writer, "supportsSessionStore", true, false);
-    try appendBoolField(writer, "supportsStreamOutput", true, false);
-    try appendBoolField(writer, "supportsToolOrchestration", true, false);
-    try writer.writeByte('}');
+    try writer.writeAll(",\"capabilities\":");
+    try writer.writeAll(capabilities_json);
 
     try writer.writeAll(",\"health\":{");
     try appendStringField(writer, "status", status, true);
@@ -143,66 +135,6 @@ fn appendBoolField(writer: anytype, key: []const u8, value: bool, first: bool) a
     try writeJsonString(writer, key);
     try writer.writeByte(':');
     try writer.writeAll(if (value) "true" else "false");
-}
-
-fn appendStringArrayField(writer: anytype, key: []const u8, values: []const []const u8, first: bool) anyerror!void {
-    if (!first) try writer.writeByte(',');
-    try writeJsonString(writer, key);
-    try writer.writeByte(':');
-    try writer.writeByte('[');
-    for (values, 0..) |value, index| {
-        if (index > 0) try writer.writeByte(',');
-        try writeJsonString(writer, value);
-    }
-    try writer.writeByte(']');
-}
-
-fn appendProviderIds(writer: anytype, services: *services_model.CommandServices, first: bool) anyerror!void {
-    if (!first) try writer.writeByte(',');
-    try writeJsonString(writer, "providers");
-    try writer.writeByte(':');
-    try writer.writeByte('[');
-    for (services.provider_registry.definitions.items, 0..) |provider_def, index| {
-        if (index > 0) try writer.writeByte(',');
-        try writeJsonString(writer, provider_def.id);
-    }
-    try writer.writeByte(']');
-}
-
-fn appendChannelIds(writer: anytype, services: *services_model.CommandServices, first: bool) anyerror!void {
-    if (!first) try writer.writeByte(',');
-    try writeJsonString(writer, "channels");
-    try writer.writeByte(':');
-    try writer.writeByte('[');
-    for (services.channel_registry.definitions.items, 0..) |channel_def, index| {
-        if (index > 0) try writer.writeByte(',');
-        try writeJsonString(writer, channel_def.id);
-    }
-    try writer.writeByte(']');
-}
-
-fn appendToolIds(writer: anytype, services: *services_model.CommandServices, first: bool) anyerror!void {
-    if (!first) try writer.writeByte(',');
-    try writeJsonString(writer, "tools");
-    try writer.writeByte(':');
-    try writer.writeByte('[');
-    for (services.tool_registry.definitions.items, 0..) |tool_def, index| {
-        if (index > 0) try writer.writeByte(',');
-        try writeJsonString(writer, tool_def.id);
-    }
-    try writer.writeByte(']');
-}
-
-fn appendCommandIds(writer: anytype, services: *services_model.CommandServices, first: bool) anyerror!void {
-    if (!first) try writer.writeByte(',');
-    try writeJsonString(writer, "commands");
-    try writer.writeByte(':');
-    try writer.writeByte('[');
-    for (services.framework_context.command_registry.commands.items, 0..) |command_def, index| {
-        if (index > 0) try writer.writeByte(',');
-        try writeJsonString(writer, command_def.id);
-    }
-    try writer.writeByte(']');
 }
 
 fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
