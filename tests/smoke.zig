@@ -298,6 +298,57 @@ test "config compat import preview reports mapped legacy fields" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"aliasRewriteCount\":2") != null);
 }
 
+test "config migrate apply and compat import apply expose governance summary" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+
+    const migrate_params = [_]framework.ValidationField{
+        .{ .key = "config_json", .value = .{ .string = "{\"version\":1,\"config\":{\"server\":{\"port\":9092},\"logging\":{\"level\":\"debug\"}}}" } },
+        .{ .key = "confirm_risk", .value = .{ .boolean = true } },
+    };
+    const migrate_apply = try dispatcher.dispatch(.{
+        .request_id = "req_config_migrate_apply_governance",
+        .method = "config.migrate_apply",
+        .params = migrate_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (migrate_apply.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(migrate_apply.ok);
+    try std.testing.expect(std.mem.indexOf(u8, migrate_apply.result.?.success_json, "\"fromVersion\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, migrate_apply.result.?.success_json, "\"toVersion\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, migrate_apply.result.?.success_json, "\"unknownCount\":0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, migrate_apply.result.?.success_json, "\"requiresRestart\":") != null);
+
+    const compat_apply_params = [_]framework.ValidationField{
+        .{ .key = "source_json", .value = .{ .string = "{\"log\":{\"level\":\"warn\"},\"service\":{\"auto_start\":true}}" } },
+        .{ .key = "source_kind", .value = .{ .string = "nullclaw" } },
+        .{ .key = "confirm_risk", .value = .{ .boolean = true } },
+    };
+    const compat_apply = try dispatcher.dispatch(.{
+        .request_id = "req_config_compat_import_apply",
+        .method = "config.compat_import",
+        .params = compat_apply_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (compat_apply.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(compat_apply.ok);
+    try std.testing.expect(std.mem.indexOf(u8, compat_apply.result.?.success_json, "\"preview\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, compat_apply.result.?.success_json, "\"fromVersion\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, compat_apply.result.?.success_json, "\"toVersion\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, compat_apply.result.?.success_json, "\"mappedCount\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, compat_apply.result.?.success_json, "\"requiresRestart\":") != null);
+}
+
 test "agent run command drives tool orchestrator and provider runtime" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
