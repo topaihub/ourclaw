@@ -9,5 +9,5 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     services.tunnel_runtime.deactivate();
-    return std.fmt.allocPrint(ctx.allocator, "{{\"active\":false,\"activationCount\":{d}}}", .{services.tunnel_runtime.activation_count});
+    return std.fmt.allocPrint(ctx.allocator, "{{\"active\":false,\"activationCount\":{d},\"healthState\":\"{s}\",\"healthMessage\":\"{s}\",\"lastDeactivatedMs\":{?}}}", .{ services.tunnel_runtime.activation_count, services.tunnel_runtime.health_state.asText(), services.tunnel_runtime.health_message, services.tunnel_runtime.last_deactivated_ms });
 }

@@ -10,11 +10,11 @@ pub const SkillForge = struct {
 
     pub fn installBuiltin(self: *SkillForge, id: []const u8) anyerror!void {
         if (std.mem.eql(u8, id, "doctor")) {
-            try self.registry.register("doctor", "Diagnostics Doctor", "diagnostics.doctor");
+            try self.registry.register("doctor", "Diagnostics Doctor", "diagnostics.doctor", .builtin);
             return;
         }
         if (std.mem.eql(u8, id, "summary")) {
-            try self.registry.register("summary", "Diagnostics Summary", "diagnostics.summary");
+            try self.registry.register("summary", "Diagnostics Summary", "diagnostics.summary", .builtin);
             return;
         }
         return error.SkillNotFound;

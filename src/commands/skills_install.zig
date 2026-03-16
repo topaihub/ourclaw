@@ -19,5 +19,6 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const skill_id = ctx.param("skill_id").?.value.string;
     try services.skillforge.installBuiltin(skill_id);
     const skill = services.skill_registry.find(skill_id).?;
-    return std.fmt.allocPrint(ctx.allocator, "{{\"installed\":true,\"skillId\":\"{s}\",\"installedAtMs\":{d}}}", .{ skill_id, skill.installed_at_ms });
+    const health = @import("../domain/skills.zig").SkillRegistry.health(skill, services.framework_context.command_registry.findByMethod(skill.entry_command) != null);
+    return std.fmt.allocPrint(ctx.allocator, "{{\"installed\":true,\"skillId\":\"{s}\",\"source\":\"{s}\",\"installedAtMs\":{d},\"healthState\":\"{s}\",\"healthMessage\":\"{s}\"}}", .{ skill_id, skill.source.asText(), skill.installed_at_ms, health.state.asText(), health.message });
 }
