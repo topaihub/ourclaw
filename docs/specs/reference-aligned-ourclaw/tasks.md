@@ -75,11 +75,16 @@
 
 ### Wave C — gateway / control-plane 对齐 openclaw
 
-- [ ] **C1. 统一 gateway control-plane contract**
+- [x] **C1. 统一 gateway control-plane contract**
   - 主线落点：`ourclaw/src/runtime/gateway_host.zig`、`src/interfaces/http_adapter.zig`、`src/commands/gateway_*`
   - 参考：openclaw gateway/server/runtime-config
   - 验证：gateway tests + HTTP smoke
   - 完成定义：gateway 状态、reload、stream subscribe、health 字段面稳定
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：`gateway.status` / `gateway.reload` / `gateway.stream_subscribe` 已复用统一 gateway snapshot contract；`gateway.start` / `gateway.stop` 也已切到一致返回结构
+    - 已完成第二子步：`gateway_host` 的 `/health` 与 `/ready` 已从固定字面量改为真实状态投影
+    - 已完成第三子步：`http_adapter.zig` 已补 gateway control-plane route smoke，覆盖 `/v1/gateway/status`、`/v1/gateway/reload`、`/v1/gateway/stream-subscribe`
+    - 完成判断：gateway 状态、reload、stream subscribe 与 health/readiness 字段面已形成统一 contract，并具备 gateway tests + HTTP smoke
 
 - [ ] **C2. 深化 service / daemon 恢复与运行策略**
   - 主线落点：`ourclaw/src/runtime/service_manager.zig`、`daemon.zig`、`runtime_host.zig`

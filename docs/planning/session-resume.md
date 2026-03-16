@@ -32,6 +32,12 @@
 
 ## 最近结论
 
+- **C1 已完成（2026-03-16）**：
+  - `gateway.status` / `start` / `stop` / `reload` / `stream_subscribe` 已统一到同一份 gateway snapshot contract
+  - `/health` 与 `/ready` 已改为真实 gateway 状态投影
+  - `http_adapter.zig` 已补 gateway control-plane route smoke
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（177/177）
+
 - **B3 已完成（2026-03-16）**：
   - summary-first prompt compression 已完成
   - `max_tool_rounds`、`allow_provider_tools`、`prompt_profile`、`response_mode` 已从 command/runtime 进入 `session.get`
