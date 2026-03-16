@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
 const services_model = @import("../domain/services.zig");
+const service_contract = @import("service_contract.zig");
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{
@@ -19,35 +20,5 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     _ = service;
     const app = services.app_context_ptr.?;
     const runtime_app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(app));
-    const service_status = runtime_app.service_manager.status();
-    const daemon_status = runtime_app.daemon.status();
-    const gateway_status = runtime_app.gateway_host.status();
-    const host_status = runtime_app.runtime_host.status();
-    return std.fmt.allocPrint(
-        ctx.allocator,
-        "{{\"serviceState\":\"{s}\",\"installed\":{s},\"enabled\":{s},\"autostart\":{s},\"daemonState\":\"{s}\",\"daemonProjected\":true,\"pid\":{?},\"lockHeld\":{s},\"restartBudgetRemaining\":{d},\"staleProcessDetected\":{s},\"gatewayRunning\":{s},\"hostRunning\":{s},\"hostLoopActive\":{s},\"gatewayHandlerAttached\":{s},\"bindHost\":\"{s}\",\"bindPort\":{d},\"installCount\":{d},\"startCount\":{d},\"stopCount\":{d},\"restartCount\":{d},\"hostStartCount\":{d},\"hostTickCount\":{d}}}",
-        .{
-            service_status.state.asText(),
-            if (service_status.installed) "true" else "false",
-            if (service_status.enabled) "true" else "false",
-            if (service_status.autostart) "true" else "false",
-            daemon_status.state,
-            daemon_status.pid,
-            if (daemon_status.lock_held) "true" else "false",
-            daemon_status.restart_budget_remaining,
-            if (daemon_status.stale_process_detected) "true" else "false",
-            if (gateway_status.running) "true" else "false",
-            if (host_status.running) "true" else "false",
-            if (host_status.loop_active) "true" else "false",
-            if (host_status.gateway_handler_attached) "true" else "false",
-            gateway_status.bind_host,
-            gateway_status.bind_port,
-            service_status.install_count,
-            service_status.start_count,
-            service_status.stop_count,
-            service_status.restart_count,
-            host_status.start_count,
-            host_status.tick_count,
-        },
-    );
+    return service_contract.buildServiceSnapshotJson(ctx.allocator, runtime_app, null);
 }
