@@ -32,6 +32,12 @@
 
 ## 最近结论
 
+- **B3 第三子步已完成（2026-03-16）**：
+  - `agent.run` / `agent.stream` 已显式接收 `allow_provider_tools / prompt_profile / response_mode`
+  - `session.turn.completed` 已写出 `allowProviderTools / promptProfile / responseMode`
+  - `session.get` 顶层、`latestTurn` 与 `recentTurns` 已对外暴露这组策略面
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（175/175）
+
 - **B3 第二子步已完成（2026-03-16）**：
   - `agent.run` / `agent.stream` 已显式接收 `max_tool_rounds`
   - `session.turn.completed` 已写出 `maxToolRounds`

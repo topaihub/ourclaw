@@ -69,7 +69,8 @@
     - `memory_runtime.recallForTurn()` 现已拆分 `compacted_summary_text` 与 `Recent Memory Recall`，避免 compacted summary 在 prompt 中重复展开
     - `prompt_assembly.zig`、`agent_runtime.zig` 与 `tests/smoke.zig` 已补 summary-first 回归；`ourclaw` `zig build test --summary all -j1` 通过（172/172）
     - 已完成第二子步：`max_tool_rounds` 已从 `agent.run` / `agent.stream` command surface 透传到 runtime，并写入 `session.turn.completed.maxToolRounds`；`session.get` 的 `latestTurn` / `recentTurns` 已对外暴露该字段；`ourclaw` `zig build test --summary all -j1` 通过（175/175）
-    - 当前下一步：继续细化 B3 后续策略，优先补 `allow_provider_tools / prompt_profile / response_mode` 的 command/session surface
+    - 已完成第三子步：`allow_provider_tools / prompt_profile / response_mode` 已从 `agent.run` / `agent.stream` command surface 进入 runtime，并写入 `session.turn.completed`；`session.get` 的顶层字段、`latestTurn` 与 `recentTurns` 已对外暴露这组策略面；`ourclaw` `zig build test --summary all -j1` 通过（175/175）
+    - 当前下一步：继续细化 B3 后续策略，优先把 execution strategy 从 runtime/session side-channel 提升成 prompt 内显式上下文
 
 ### Wave C — gateway / control-plane 对齐 openclaw
 
