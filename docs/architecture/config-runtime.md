@@ -1,5 +1,12 @@
 # ourclaw 配置运行时详细设计
 
+> 使用说明（2026-03-16）：本文档是配置运行时方向的 supporting design，不再作为默认执行入口。
+>
+> 当前应优先参考：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+
 ## 1. 目标与范围
 
 本文档定义 `ourclaw` 完整业务版的配置运行时，包括：
@@ -12,7 +19,7 @@
 - 受控写回
 - diff / change log / side effect / post-write hook
 
-> 当前共享实现已先落在 `framework/src/config/store.zig`、`framework/src/config/pipeline.zig`，并已补 `framework/src/config/parser.zig`、`framework/src/config/defaults.zig`、`framework/src/config/loader.zig` 第一版；`ourclaw` 侧则已有 `ourclaw/src/config/field_registry.zig` 与 `ourclaw/src/config/runtime.zig` 的最小装配。完整配置运行时尚未完成，但 `loader / parser / defaults` 主链路第一版已落地。
+> 当前共享实现已先落在 `framework/src/config/store.zig`、`framework/src/config/pipeline.zig`、`framework/src/config/parser.zig`、`framework/src/config/defaults.zig`、`framework/src/config/loader.zig`；`ourclaw` 侧已有 `ourclaw/src/config/field_registry.zig` 与 `ourclaw/src/config/runtime.zig` 的主链路接线。阅读时应把本文理解为“基线已落地、继续深化”的配置设计，而不是“尚未开始”的计划稿。
 
 ## 2. 设计目标
 

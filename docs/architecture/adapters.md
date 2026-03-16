@@ -1,5 +1,12 @@
 # ourclaw 入口适配层详细设计
 
+> 使用说明（2026-03-16）：本文档是入口适配层的 supporting design，不再作为默认执行入口。
+>
+> 当前应优先参考：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+
 ## 1. 目标与范围
 
 本文档定义 `ourclaw` 的入口适配层设计。这里的 adapter 指：
@@ -11,7 +18,7 @@
 
 其共同目标是：把不同入口协议转成统一内部请求，再交给 `AppContext + CommandDispatcher`。
 
-> 当前最小实现已经落在 `ourclaw/src/interfaces/cli_adapter.zig`、`ourclaw/src/interfaces/bridge_adapter.zig`、`ourclaw/src/interfaces/http_adapter.zig`。截至 2026-03-11，这些仍然属于最小可用版，而不是完整协议版。
+> 当前第一版实现已经落在 `ourclaw/src/interfaces/cli_adapter.zig`、`ourclaw/src/interfaces/bridge_adapter.zig`、`ourclaw/src/interfaces/http_adapter.zig`。阅读时应把本文理解为“当前入口协议的深化设计”，而不是“尚未落地的最小版计划”。
 
 ## 2. 设计原则
 

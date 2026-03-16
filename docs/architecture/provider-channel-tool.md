@@ -1,10 +1,17 @@
 # ourclaw Provider / Channel / Tool 详细设计
 
+> 使用说明（2026-03-16）：本文档是 provider/channel/tool 方向的 supporting design，不再作为默认执行入口。
+>
+> 当前应优先参考：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+
 ## 1. 目标与范围
 
 本文档定义 `ourclaw` 业务域里 provider、channel、tool 三大 registry 与 runtime 能力的完整设计，目标是在保留 `framework` 共享运行时的前提下，建立接近 `nullclaw` 的业务扩展面。
 
-> 当前最小实现已落在 `ourclaw/src/providers/root.zig`、`ourclaw/src/channels/root.zig`、`ourclaw/src/tools/root.zig`，但目前还只是 registry stub，不等于完整业务版。
+> 当前第一版实现已落在 `ourclaw/src/providers/root.zig`、`ourclaw/src/channels/root.zig`、`ourclaw/src/tools/root.zig`；阅读时应把本文理解为“基线已落地，继续深化的设计意图”，而不是“仍只有 stub”。
 
 ## 2. 总体设计原则
 
