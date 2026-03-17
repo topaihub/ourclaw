@@ -13,6 +13,7 @@ const mcp_runtime = @import("mcp_runtime.zig");
 const peripherals = @import("peripherals.zig");
 const hardware = @import("hardware.zig");
 const voice_runtime = @import("voice_runtime.zig");
+const pairing_registry = @import("../runtime/pairing_registry.zig");
 const stream_output = @import("stream_output.zig");
 const tool_orchestrator = @import("tool_orchestrator.zig");
 
@@ -33,6 +34,7 @@ pub const CommandServices = struct {
     peripheral_registry: *peripherals.PeripheralRegistry,
     hardware_registry: *hardware.HardwareRegistry,
     voice_runtime: *voice_runtime.VoiceRuntime,
+    pairing_registry: *pairing_registry.PairingRegistry,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
     tool_orchestrator: *tool_orchestrator.ToolOrchestrator,

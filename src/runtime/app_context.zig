@@ -26,6 +26,7 @@ const gateway_host = @import("gateway_host.zig");
 const runtime_host = @import("runtime_host.zig");
 const service_manager = @import("service_manager.zig");
 const daemon = @import("daemon.zig");
+const pairing_registry = @import("pairing_registry.zig");
 const stream_registry = @import("stream_registry.zig");
 const config_runtime_hooks = @import("config_runtime_hooks.zig");
 const http_adapter = @import("../interfaces/http_adapter.zig");
@@ -51,6 +52,7 @@ pub const AppContext = struct {
     peripheral_registry: *peripherals.PeripheralRegistry,
     hardware_registry: *hardware.HardwareRegistry,
     voice_runtime: *voice_runtime.VoiceRuntime,
+    pairing_registry: *pairing_registry.PairingRegistry,
     agent_runtime: *agent_runtime.AgentRuntime,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
@@ -139,6 +141,10 @@ pub const AppContext = struct {
         errdefer allocator.destroy(voice_runtime_ref);
         voice_runtime_ref.* = voice_runtime.VoiceRuntime.init(allocator);
 
+        const pairing_registry_ref = try allocator.create(pairing_registry.PairingRegistry);
+        errdefer allocator.destroy(pairing_registry_ref);
+        pairing_registry_ref.* = pairing_registry.PairingRegistry.init(allocator);
+
         const memory_runtime_ref = try allocator.create(memory_runtime.MemoryRuntime);
         errdefer allocator.destroy(memory_runtime_ref);
         memory_runtime_ref.* = memory_runtime.MemoryRuntime.init(allocator);
@@ -223,6 +229,7 @@ pub const AppContext = struct {
             .peripheral_registry = peripheral_registry,
             .hardware_registry = hardware_registry,
             .voice_runtime = voice_runtime_ref,
+            .pairing_registry = pairing_registry_ref,
             .agent_runtime = agent_runtime_ref,
             .session_store = session_store,
             .stream_output = output,
@@ -257,6 +264,7 @@ pub const AppContext = struct {
             .peripheral_registry = self.peripheral_registry,
             .hardware_registry = self.hardware_registry,
             .voice_runtime = self.voice_runtime,
+            .pairing_registry = self.pairing_registry,
             .session_store = self.session_store,
             .stream_output = self.stream_output,
             .tool_orchestrator = self.tool_orchestrator,
@@ -295,6 +303,8 @@ pub const AppContext = struct {
         self.allocator.destroy(self.peripheral_registry);
         self.voice_runtime.deinit();
         self.allocator.destroy(self.voice_runtime);
+        self.pairing_registry.deinit();
+        self.allocator.destroy(self.pairing_registry);
         self.mcp_runtime.deinit();
         self.allocator.destroy(self.mcp_runtime);
         self.tunnel_runtime.deinit();
