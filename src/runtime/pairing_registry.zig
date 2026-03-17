@@ -115,6 +115,19 @@ pub const PairingRegistry = struct {
         return .{ .changed = false, .state = .pending, .token = null };
     }
 
+    pub fn unpair(self: *Self, id: []const u8) PairingDecision {
+        for (self.requests.items) |*request| {
+            if (!std.mem.eql(u8, request.id, id)) continue;
+            if (request.token) |value| self.allocator.free(value);
+            request.token = null;
+            request.token_issued_at_ms = null;
+            request.state = .rejected;
+            request.decided_at_ms = std.time.milliTimestamp();
+            return .{ .changed = true, .state = request.state, .token = null };
+        }
+        return .{ .changed = false, .state = .pending, .token = null };
+    }
+
     fn transition(self: *Self, id: []const u8, next: PairingState) PairingDecision {
         for (self.requests.items) |*request| {
             if (!std.mem.eql(u8, request.id, id)) continue;
