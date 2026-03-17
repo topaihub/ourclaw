@@ -1060,6 +1060,22 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(access_link.ok);
     try std.testing.expect(std.mem.indexOf(u8, access_link.result.?.success_json, "\"requiresToken\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, access_link.result.?.success_json, "?token=") != null);
+
+    const remote_status = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_status",
+        .method = "gateway.remote.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"tunnelActive\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"nextAction\":\"activate_tunnel\"") != null);
 }
 
 test "device pair control-plane commands manage pending requests" {
