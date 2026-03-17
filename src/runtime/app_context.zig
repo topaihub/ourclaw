@@ -207,16 +207,6 @@ pub const AppContext = struct {
 
         const config_hooks = try allocator.create(config_runtime_hooks.ConfigRuntimeHooks);
         errdefer allocator.destroy(config_hooks);
-        config_hooks.* = config_runtime_hooks.ConfigRuntimeHooks.init(
-            allocator,
-            framework_context.logger,
-            framework_context.config_side_effects,
-            provider_registry,
-            memory_runtime_ref,
-            heartbeat_ref,
-            &self.effective_gateway_require_pairing,
-            &self.effective_runtime_max_tool_rounds,
-        );
 
         self.* = .{
             .allocator = allocator,
@@ -255,6 +245,19 @@ pub const AppContext = struct {
             .config_hooks = config_hooks,
             .services = undefined,
         };
+
+        config_hooks.* = config_runtime_hooks.ConfigRuntimeHooks.init(
+            allocator,
+            self.framework_context.logger,
+            self.framework_context.config_side_effects,
+            provider_registry,
+            memory_runtime_ref,
+            heartbeat_ref,
+            &self.effective_gateway_require_pairing,
+            &self.effective_runtime_max_tool_rounds,
+            self.framework_context.console_sink,
+            &self.framework_context.current_console_style,
+        );
 
         self.services = .{
             .app_context_ptr = @ptrCast(self),

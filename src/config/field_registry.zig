@@ -134,6 +134,23 @@ const FIELD_DEFINITIONS = [_]ConfigFieldDefinition{
         },
     },
     .{
+        .path = "logging.format",
+        .label = "Logging Format",
+        .description = "Console logging format",
+        .category = .logging,
+        .display_group = .file_logging,
+        .value_kind = .enum_string,
+        .required = true,
+        .default_value_json = "\"pretty\"",
+        .side_effect_kind = .reload_logging,
+        .field_definition = .{
+            .key = "logging.format",
+            .required = true,
+            .value_kind = .enum_string,
+            .rules = &.{.{ .enum_string = &.{ "pretty", "compact", "json" } }},
+        },
+    },
+    .{
         .path = "logging.file.enabled",
         .label = "File Logging Enabled",
         .description = "Whether file logging is enabled",
@@ -432,7 +449,7 @@ test "config field registry exposes stable metadata" {
     try std.testing.expectEqual(ConfigCategory.memory, memory_provider.category);
     try std.testing.expectEqual(DisplayGroup.memory_retrieval, memory_provider.display_group);
     try std.testing.expectEqualStrings("\"local\"", memory_provider.default_value_json.?);
-    try std.testing.expectEqual(@as(usize, 16), ConfigFieldRegistry.all().len);
+    try std.testing.expectEqual(@as(usize, 17), ConfigFieldRegistry.all().len);
     try std.testing.expectEqual(@as(usize, 3), ConfigFieldRegistry.configRules().len);
     try std.testing.expect(ConfigFieldRegistry.defaultEntries().len >= 10);
 }

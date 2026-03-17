@@ -14,6 +14,8 @@ pub const ConfigRuntimeHooks = struct {
     heartbeat: *heartbeat.Heartbeat,
     gateway_require_pairing: *bool,
     runtime_max_tool_rounds: *usize,
+    console_sink: ?*framework.ConsoleSink,
+    current_console_style: *framework.ConsoleStyle,
 
     const Self = @This();
 
@@ -34,6 +36,8 @@ pub const ConfigRuntimeHooks = struct {
         hb: *heartbeat.Heartbeat,
         gateway_require_pairing: *bool,
         runtime_max_tool_rounds: *usize,
+        console_sink: ?*framework.ConsoleSink,
+        current_console_style: *framework.ConsoleStyle,
     ) Self {
         return .{
             .allocator = allocator,
@@ -45,6 +49,8 @@ pub const ConfigRuntimeHooks = struct {
             .heartbeat = hb,
             .gateway_require_pairing = gateway_require_pairing,
             .runtime_max_tool_rounds = runtime_max_tool_rounds,
+            .console_sink = console_sink,
+            .current_console_style = current_console_style,
         };
     }
 
@@ -98,6 +104,14 @@ pub const ConfigRuntimeHooks = struct {
             defer parsed.deinit(self.allocator);
             if (parseLogLevel(parsed.string)) |level| {
                 self.logger.min_level = level;
+                if (self.console_sink) |sink| sink.min_level = level;
+            }
+        } else if (std.mem.eql(u8, change.path, "logging.format")) {
+            var parsed = try framework.ConfigValueParser.parseJsonValue(self.allocator, .enum_string, change.new_value_json);
+            defer parsed.deinit(self.allocator);
+            if (parseConsoleStyle(parsed.string)) |style| {
+                self.current_console_style.* = style;
+                if (self.console_sink) |sink| sink.style = style;
             }
         }
 
@@ -132,6 +146,13 @@ pub const ConfigRuntimeHooks = struct {
         if (std.mem.eql(u8, text, "error")) return .@"error";
         if (std.mem.eql(u8, text, "fatal")) return .fatal;
         if (std.mem.eql(u8, text, "silent")) return .silent;
+        return null;
+    }
+
+    fn parseConsoleStyle(text: []const u8) ?framework.ConsoleStyle {
+        if (std.mem.eql(u8, text, "pretty")) return .pretty;
+        if (std.mem.eql(u8, text, "compact")) return .compact;
+        if (std.mem.eql(u8, text, "json")) return .json;
         return null;
     }
 
