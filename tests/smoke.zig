@@ -954,6 +954,11 @@ test "diagnostics commands return runtime summary and doctor checks" {
     };
     try std.testing.expect(doctor.ok);
     try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"status\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"healthyProviderCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"gatewayRequirePairing\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"serviceState\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"hardwareCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"brokenPeripheralCount\":") != null);
 }
 
 test "events subscribe and poll commands work together" {
