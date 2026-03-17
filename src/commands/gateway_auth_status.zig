@@ -42,7 +42,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
 
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"requirePairing\":{s},\"pendingPairings\":{d},\"approvedPairings\":{d},\"sharedTokenSupported\":true,\"sharedTokenConfigured\":{s},\"passwordSupported\":false,\"passwordConfigured\":false,\"remoteAccessSupported\":false,\"bindHost\":\"{s}\",\"bindPort\":{d},\"gatewayRunning\":{s},\"nextAction\":\"{s}\"}}",
+        "{{\"requirePairing\":{s},\"pendingPairings\":{d},\"approvedPairings\":{d},\"sharedTokenSupported\":true,\"sharedTokenConfigured\":{s},\"tokenLifecycleAvailable\":true,\"passwordSupported\":false,\"passwordConfigured\":false,\"remoteAccessSupported\":false,\"bindHost\":\"{s}\",\"bindPort\":{d},\"gatewayRunning\":{s},\"nextAction\":\"{s}\"}}",
         .{
             if (app.effective_gateway_require_pairing) "true" else "false",
             pending_pairings,

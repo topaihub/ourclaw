@@ -50,6 +50,15 @@ pub const MemorySecretStore = struct {
         return null;
     }
 
+    pub fn delete(self: *Self, id: []const u8) bool {
+        if (self.findIndex(id)) |index| {
+            var removed = self.secrets.swapRemove(index);
+            removed.deinit(self.allocator);
+            return true;
+        }
+        return false;
+    }
+
     pub fn count(self: *const Self) usize {
         return self.secrets.items.len;
     }
@@ -101,4 +110,14 @@ test "security policy validates secret refs and authority" {
     try std.testing.expect(!SecurityPolicy.validateSecretRef("../bad"));
     try std.testing.expect(SecurityPolicy.canInvokeTool(.public, "echo"));
     try std.testing.expect(!SecurityPolicy.canInvokeTool(.public, "dangerous"));
+}
+
+test "memory secret store supports delete" {
+    var store = MemorySecretStore.init(std.testing.allocator);
+    defer store.deinit();
+    try store.put("gateway:shared_token", "abc");
+    try std.testing.expectEqual(@as(usize, 1), store.count());
+    try std.testing.expect(store.delete("gateway:shared_token"));
+    try std.testing.expectEqual(@as(usize, 0), store.count());
+    try std.testing.expect(!store.delete("gateway:shared_token"));
 }
