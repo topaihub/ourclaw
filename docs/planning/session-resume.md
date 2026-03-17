@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **F1 已完成（2026-03-17）**：
+  - `channels.root` 已补 routing group 与 health state
+  - `channels.status` 已成为 channel control-plane 的只读状态面
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（186/186）
+
 - **E2 已完成（2026-03-17）**：
   - `StatusViewModel`、`DiagnosticsViewModel`、`LogsViewModel` 已切到 typed snapshot 主路径
   - `ConfigViewModel` 的 `config.get` 读取路径也已开始消费 typed snapshot

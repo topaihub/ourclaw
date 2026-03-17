@@ -152,10 +152,15 @@
 
 ### Wave F — 渠道与产品表面对齐
 
-- [ ] **F1. 深化 channel routing / channel manager 模型**
+- [x] **F1. 深化 channel routing / channel manager 模型**
   - 主线落点：`ourclaw/src/channels/*`、`runtime/app_context.zig`
   - 参考：`nullclaw` channel manager、openclaw channel routing
   - 完成定义：channel 不再只是 registry，而具备更明确的路由和健康治理
+  - 当前进展（2026-03-17）：
+    - 已完成第一子步：`channels.root` 已把 CLI / bridge / HTTP 运行态从纯计数器提升为带 `lastRouteGroup` 的 routing snapshot
+    - 已完成第二子步：`channels.status` 命令已把 channel registry / routing / snapshot 对外暴露
+    - 已完成第三子步：channel snapshot 已补 `healthState`，并进入 `channels.status` 与 smoke
+    - 完成判断：channel 当前已不再只是 plain registry，而具备对外可见的 routing 与 health 状态面
 
 - [ ] **F2. 深化 provider capability / model surface**
   - 主线落点：`ourclaw/src/providers/*`
