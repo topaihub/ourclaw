@@ -994,6 +994,30 @@ test "status all exposes product overview" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextAction\":") != null);
 }
 
+test "gateway auth status exposes access summary" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+    try app.pairing_registry.create("telegram", "user_a", "123456");
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_auth_status",
+        .method = "gateway.auth.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"requirePairing\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"pendingPairings\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"sharedTokenSupported\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextAction\":\"approve_pairing_requests\"") != null);
+}
+
 test "device pair control-plane commands manage pending requests" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
