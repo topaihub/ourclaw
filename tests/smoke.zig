@@ -257,6 +257,30 @@ test "config set provider field triggers real provider refresh state" {
     try std.testing.expect(std.mem.indexOf(u8, providers_status.result.?.success_json, "\"lastRefreshReason\":\"providers.openai.model\"") != null);
 }
 
+test "config set logging format updates runtime console style" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+    const params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = "logging.format" } },
+        .{ .key = "value", .value = .{ .string = "json" } },
+    };
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_logging_format_set",
+        .method = "config.set",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(app.framework_context.current_console_style == .json);
+}
+
 test "config notify runtime updates pairing and max tool rounds" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
