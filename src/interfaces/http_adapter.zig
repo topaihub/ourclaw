@@ -266,6 +266,7 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/onboard/summary")) return "onboard.summary";
     if (std.mem.eql(u8, route, "/v1/onboard/apply-defaults")) return "onboard.apply_defaults";
     if (std.mem.eql(u8, route, "/v1/device/pair/list")) return "device.pair.list";
+    if (std.mem.eql(u8, route, "/v1/device/pair/request")) return "device.pair.request";
     if (std.mem.eql(u8, route, "/v1/device/pair/approve")) return "device.pair.approve";
     if (std.mem.eql(u8, route, "/v1/device/pair/reject")) return "device.pair.reject";
     if (std.mem.eql(u8, route, "/v1/device/unpair")) return "device.unpair";

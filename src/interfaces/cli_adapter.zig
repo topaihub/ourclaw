@@ -478,6 +478,24 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "device.pair.request")) {
+        if (args.len < 3) return error.MissingPairingRequester;
+        var with_code: ?[]const u8 = null;
+        if (args.len >= 5 and std.mem.eql(u8, args[3], "--code")) with_code = args[4];
+        const count: usize = 2 + @as(usize, if (with_code != null) 1 else 0);
+        const params = try allocator.alloc(framework.ValidationField, count);
+        params[0] = .{ .key = "channel", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        params[1] = .{ .key = "requester", .value = .{ .string = try allocator.dupe(u8, args[2]) } };
+        if (with_code) |code| {
+            params[2] = .{ .key = "code", .value = .{ .string = try allocator.dupe(u8, code) } };
+        }
+        return .{
+            .request = .{ .request_id = "cli_req_device_pair_request", .method = "device.pair.request", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "device.pair.approve")) {
         if (args.len < 2) return error.MissingPairingId;
         const params = try allocator.alloc(framework.ValidationField, 1);

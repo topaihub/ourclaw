@@ -973,7 +973,7 @@ test "onboard apply defaults updates runtime and service state" {
 test "status all exposes product overview" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
-    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = try app.pairing_registry.create("telegram", "user_a", "123456");
 
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(.{
@@ -997,7 +997,7 @@ test "status all exposes product overview" {
 test "gateway auth status exposes access summary" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
-    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = try app.pairing_registry.create("telegram", "user_a", "123456");
 
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(.{
@@ -1190,10 +1190,44 @@ test "device pair control-plane commands manage pending requests" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
 
-    try app.pairing_registry.create("telegram", "user_a", "123456");
-    try app.pairing_registry.create("discord", "user_b", "654321");
-
     var dispatcher = app.makeDispatcher();
+    const request_a_params = [_]framework.ValidationField{
+        .{ .key = "channel", .value = .{ .string = "telegram" } },
+        .{ .key = "requester", .value = .{ .string = "user_a" } },
+        .{ .key = "code", .value = .{ .string = "123456" } },
+    };
+    const requested_a = try dispatcher.dispatch(.{
+        .request_id = "req_device_pair_request_a",
+        .method = "device.pair.request",
+        .params = request_a_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (requested_a.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(requested_a.ok);
+    try std.testing.expect(std.mem.indexOf(u8, requested_a.result.?.success_json, "\"id\":\"pair_1\"") != null);
+
+    const request_b_params = [_]framework.ValidationField{
+        .{ .key = "channel", .value = .{ .string = "discord" } },
+        .{ .key = "requester", .value = .{ .string = "user_b" } },
+        .{ .key = "code", .value = .{ .string = "654321" } },
+    };
+    const requested_b = try dispatcher.dispatch(.{
+        .request_id = "req_device_pair_request_b",
+        .method = "device.pair.request",
+        .params = request_b_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (requested_b.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(requested_b.ok);
+
     const listed = try dispatcher.dispatch(.{
         .request_id = "req_device_pair_list",
         .method = "device.pair.list",
@@ -1277,7 +1311,7 @@ test "node list exposes runtime node surface" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
 
-    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = try app.pairing_registry.create("telegram", "user_a", "123456");
     _ = app.pairing_registry.approve("pair_1");
 
     var dispatcher = app.makeDispatcher();
@@ -1302,7 +1336,7 @@ test "node describe exposes single node detail" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
 
-    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = try app.pairing_registry.create("telegram", "user_a", "123456");
     _ = app.pairing_registry.approve("pair_1");
 
     var dispatcher = app.makeDispatcher();
@@ -1328,7 +1362,7 @@ test "devices list aggregates pairing node and peripheral state" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
 
-    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = try app.pairing_registry.create("telegram", "user_a", "123456");
     _ = app.pairing_registry.approve("pair_1");
 
     var dispatcher = app.makeDispatcher();
