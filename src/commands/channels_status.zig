@@ -32,6 +32,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendUnsignedField(writer, "liveStreamCount", cli.live_stream_count, false);
     try appendOptionalStringField(writer, "lastMethod", cli.last_method, false);
     try appendStringField(writer, "lastRouteGroup", cli.last_route_group, false);
+    try appendStringField(writer, "healthState", cli.health_state, false);
     try appendOptionalStringField(writer, "lastSessionId", cli.last_session_id, false);
     try writer.writeByte('}');
     try writer.writeAll(",\"bridge\":{");
@@ -39,6 +40,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendUnsignedField(writer, "streamCount", bridge.stream_count, false);
     try appendOptionalStringField(writer, "lastTarget", bridge.last_target, false);
     try appendStringField(writer, "lastRouteGroup", bridge.last_route_group, false);
+    try appendStringField(writer, "healthState", bridge.health_state, false);
     try appendOptionalStringField(writer, "lastSessionId", bridge.last_session_id, false);
     try writer.writeByte('}');
     try writer.writeAll(",\"http\":{");
@@ -46,6 +48,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try appendUnsignedField(writer, "streamCount", http.stream_count, false);
     try appendOptionalStringField(writer, "lastTarget", http.last_target, false);
     try appendStringField(writer, "lastRouteGroup", http.last_route_group, false);
+    try appendStringField(writer, "healthState", http.health_state, false);
     try appendOptionalStringField(writer, "lastSessionId", http.last_session_id, false);
     try writer.writeByte('}');
     try writer.writeByte('}');

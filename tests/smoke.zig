@@ -880,6 +880,7 @@ test "channels status exposes routing groups" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"count\":3") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"lastRouteGroup\":\"agent\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"lastRouteGroup\":\"config\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthState\":\"active\"") != null);
 }
 
 test "diagnostics commands return runtime summary and doctor checks" {
