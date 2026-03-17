@@ -1462,6 +1462,48 @@ test "node describe exposes single node detail" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"approvedPairingCount\":1") != null);
 }
 
+test "node invoke supports safe health actions" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+    const health_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "gpu0" } },
+        .{ .key = "action", .value = .{ .string = "health_check" } },
+    };
+    const health = try dispatcher.dispatch(.{
+        .request_id = "req_node_invoke_health",
+        .method = "node.invoke",
+        .params = health_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (health.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(health.ok);
+    try std.testing.expect(std.mem.indexOf(u8, health.result.?.success_json, "\"action\":\"health_check\"") != null);
+
+    const probe_params = [_]framework.ValidationField{
+        .{ .key = "id", .value = .{ .string = "gpu0" } },
+        .{ .key = "action", .value = .{ .string = "probe" } },
+    };
+    const probe = try dispatcher.dispatch(.{
+        .request_id = "req_node_invoke_probe",
+        .method = "node.invoke",
+        .params = probe_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (probe.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(probe.ok);
+    try std.testing.expect(std.mem.indexOf(u8, probe.result.?.success_json, "\"action\":\"probe\"") != null);
+}
+
 test "devices list aggregates pairing node and peripheral state" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

@@ -275,6 +275,7 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/devices/list")) return "devices.list";
     if (std.mem.eql(u8, route, "/v1/node/list")) return "node.list";
     if (std.mem.eql(u8, route, "/v1/node/describe")) return "node.describe";
+    if (std.mem.eql(u8, route, "/v1/node/invoke")) return "node.invoke";
     if (std.mem.eql(u8, route, "/v1/metrics/summary")) return "metrics.summary";
     if (std.mem.eql(u8, route, "/v1/observer/recent")) return "observer.recent";
     if (std.mem.eql(u8, route, "/v1/events/subscribe")) return "events.subscribe";

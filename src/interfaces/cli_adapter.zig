@@ -551,6 +551,18 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "node.invoke")) {
+        if (args.len < 3) return error.MissingNodeAction;
+        const params = try allocator.alloc(framework.ValidationField, 2);
+        params[0] = .{ .key = "id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        params[1] = .{ .key = "action", .value = .{ .string = try allocator.dupe(u8, args[2]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_node_invoke", .method = "node.invoke", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "gateway.password.set")) {
         if (args.len < 2) return error.MissingPassword;
         const params = try allocator.alloc(framework.ValidationField, 1);
