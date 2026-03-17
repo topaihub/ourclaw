@@ -456,6 +456,17 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "node.describe")) {
+        if (args.len < 2) return error.MissingNodeId;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_node_describe", .method = "node.describe", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status") or std.mem.eql(u8, args[0], "node.list")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
