@@ -12,6 +12,7 @@ pub const CliChannelSnapshot = struct {
     request_count: usize,
     live_stream_count: usize,
     last_method: ?[]const u8,
+    last_route_group: []const u8,
     last_session_id: ?[]const u8,
 };
 
@@ -19,6 +20,7 @@ pub const EdgeChannelSnapshot = struct {
     request_count: usize,
     stream_count: usize,
     last_target: ?[]const u8,
+    last_route_group: []const u8,
     last_session_id: ?[]const u8,
 };
 
@@ -27,6 +29,7 @@ pub const CliChannelRuntime = struct {
     request_count: usize = 0,
     live_stream_count: usize = 0,
     last_method: ?[]u8 = null,
+    last_route_group: []const u8 = "idle",
     last_session_id: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) CliChannelRuntime {
@@ -42,6 +45,7 @@ pub const CliChannelRuntime = struct {
         self.request_count += 1;
         if (self.last_method) |value| self.allocator.free(value);
         self.last_method = try self.allocator.dupe(u8, method);
+        self.last_route_group = classifyTarget(method);
         if (self.last_session_id) |value| self.allocator.free(value);
         self.last_session_id = if (session_id) |value| try self.allocator.dupe(u8, value) else null;
     }
@@ -56,6 +60,7 @@ pub const CliChannelRuntime = struct {
             .request_count = self.request_count,
             .live_stream_count = self.live_stream_count,
             .last_method = self.last_method,
+            .last_route_group = self.last_route_group,
             .last_session_id = self.last_session_id,
         };
     }
@@ -66,6 +71,7 @@ pub const EdgeChannelRuntime = struct {
     request_count: usize = 0,
     stream_count: usize = 0,
     last_target: ?[]u8 = null,
+    last_route_group: []const u8 = "idle",
     last_session_id: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) EdgeChannelRuntime {
@@ -81,6 +87,7 @@ pub const EdgeChannelRuntime = struct {
         self.request_count += 1;
         if (self.last_target) |value| self.allocator.free(value);
         self.last_target = try self.allocator.dupe(u8, target);
+        self.last_route_group = classifyTarget(target);
         if (self.last_session_id) |value| self.allocator.free(value);
         self.last_session_id = if (session_id) |value| try self.allocator.dupe(u8, value) else null;
     }
@@ -95,6 +102,7 @@ pub const EdgeChannelRuntime = struct {
             .request_count = self.request_count,
             .stream_count = self.stream_count,
             .last_target = self.last_target,
+            .last_route_group = self.last_route_group,
             .last_session_id = self.last_session_id,
         };
     }
@@ -184,6 +192,22 @@ pub const ChannelRegistry = struct {
     }
 };
 
+fn classifyTarget(target: []const u8) []const u8 {
+    if (std.mem.startsWith(u8, target, "agent.")) return "agent";
+    if (std.mem.startsWith(u8, target, "config.")) return "config";
+    if (std.mem.startsWith(u8, target, "session.")) return "session";
+    if (std.mem.startsWith(u8, target, "memory.")) return "memory";
+    if (std.mem.startsWith(u8, target, "gateway.")) return "gateway";
+    if (std.mem.startsWith(u8, target, "service.")) return "service";
+    if (std.mem.startsWith(u8, target, "/v1/agent/")) return "agent";
+    if (std.mem.startsWith(u8, target, "/v1/config/")) return "config";
+    if (std.mem.startsWith(u8, target, "/v1/session/")) return "session";
+    if (std.mem.startsWith(u8, target, "/v1/memory/")) return "memory";
+    if (std.mem.startsWith(u8, target, "/v1/gateway/")) return "gateway";
+    if (std.mem.startsWith(u8, target, "/v1/service/")) return "service";
+    return "other";
+}
+
 test "channel registry registers builtins" {
     var registry = ChannelRegistry.init(std.testing.allocator);
     defer registry.deinit();
@@ -201,6 +225,7 @@ test "cli channel runtime records requests and session ids" {
     try std.testing.expectEqual(@as(usize, 2), snapshot.request_count);
     try std.testing.expectEqual(@as(usize, 1), snapshot.live_stream_count);
     try std.testing.expectEqualStrings("agent.stream.live", snapshot.last_method.?);
+    try std.testing.expectEqualStrings("agent", snapshot.last_route_group);
     try std.testing.expectEqualStrings("sess_cli_channel", snapshot.last_session_id.?);
 }
 
@@ -216,10 +241,12 @@ test "bridge and http channel runtimes record targets and stream usage" {
     try std.testing.expectEqual(@as(usize, 2), bridge.request_count);
     try std.testing.expectEqual(@as(usize, 1), bridge.stream_count);
     try std.testing.expectEqualStrings("agent.stream", bridge.last_target.?);
+    try std.testing.expectEqualStrings("agent", bridge.last_route_group);
 
     const http = registry.httpSnapshot();
     try std.testing.expectEqual(@as(usize, 2), http.request_count);
     try std.testing.expectEqual(@as(usize, 1), http.stream_count);
     try std.testing.expectEqualStrings("/v1/agent/stream/sse", http.last_target.?);
+    try std.testing.expectEqualStrings("agent", http.last_route_group);
     try std.testing.expectEqualStrings("sess_http", http.last_session_id.?);
 }
