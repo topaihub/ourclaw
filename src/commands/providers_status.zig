@@ -22,6 +22,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
 
     try writer.writeByte('{');
     try appendUnsignedField(writer, "count", services.provider_registry.count(), true);
+    try appendUnsignedField(writer, "refreshCount", services.provider_registry.refresh_count, false);
+    try appendOptionalStringField(writer, "lastRefreshReason", services.provider_registry.last_refresh_reason, false);
     try writer.writeAll(",\"items\":[");
     for (services.provider_registry.definitions.items, 0..) |provider_def, index| {
         if (index > 0) try writer.writeByte(',');

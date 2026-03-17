@@ -240,6 +240,21 @@ test "config set provider field triggers real provider refresh state" {
     try std.testing.expect(envelope.ok);
     try std.testing.expectEqual(@as(usize, 1), app.provider_registry.refresh_count);
     try std.testing.expectEqualStrings("providers.openai.model", app.provider_registry.last_refresh_reason.?);
+
+    const providers_status = try dispatcher.dispatch(.{
+        .request_id = "req_providers_status_after_refresh",
+        .method = "providers.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (providers_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(providers_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, providers_status.result.?.success_json, "\"refreshCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, providers_status.result.?.success_json, "\"lastRefreshReason\":\"providers.openai.model\"") != null);
 }
 
 test "config notify runtime updates pairing and max tool rounds" {
