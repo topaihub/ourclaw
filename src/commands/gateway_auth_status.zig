@@ -38,13 +38,16 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     else
         "access_ready";
 
+    const shared_token_configured = services.secret_store.get("gateway:shared_token") != null;
+
     return std.fmt.allocPrint(
         ctx.allocator,
-        "{{\"requirePairing\":{s},\"pendingPairings\":{d},\"approvedPairings\":{d},\"sharedTokenSupported\":false,\"sharedTokenConfigured\":false,\"passwordSupported\":false,\"passwordConfigured\":false,\"remoteAccessSupported\":false,\"bindHost\":\"{s}\",\"bindPort\":{d},\"gatewayRunning\":{s},\"nextAction\":\"{s}\"}}",
+        "{{\"requirePairing\":{s},\"pendingPairings\":{d},\"approvedPairings\":{d},\"sharedTokenSupported\":true,\"sharedTokenConfigured\":{s},\"passwordSupported\":false,\"passwordConfigured\":false,\"remoteAccessSupported\":false,\"bindHost\":\"{s}\",\"bindPort\":{d},\"gatewayRunning\":{s},\"nextAction\":\"{s}\"}}",
         .{
             if (app.effective_gateway_require_pairing) "true" else "false",
             pending_pairings,
             approved_pairings,
+            if (shared_token_configured) "true" else "false",
             gateway.bind_host,
             gateway.bind_port,
             if (gateway.running) "true" else "false",
