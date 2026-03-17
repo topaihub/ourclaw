@@ -44,6 +44,8 @@ pub const gateway_access_link = @import("gateway_access_link.zig");
 pub const gateway_remote_status = @import("gateway_remote_status.zig");
 pub const gateway_remote_enable = @import("gateway_remote_enable.zig");
 pub const gateway_remote_disable = @import("gateway_remote_disable.zig");
+pub const gateway_remote_policy_status = @import("gateway_remote_policy_status.zig");
+pub const gateway_remote_policy_set = @import("gateway_remote_policy_set.zig");
 pub const service_status = @import("service_status.zig");
 pub const metrics_summary = @import("metrics_summary.zig");
 pub const observer_recent = @import("observer_recent.zig");
@@ -128,6 +130,8 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(gateway_remote_status.definition(command_services));
     try registry.register(gateway_remote_enable.definition(command_services));
     try registry.register(gateway_remote_disable.definition(command_services));
+    try registry.register(gateway_remote_policy_status.definition(command_services));
+    try registry.register(gateway_remote_policy_set.definition(command_services));
     try registry.register(gateway_start.definition(command_services));
     try registry.register(gateway_stop.definition(command_services));
     try registry.register(gateway_reload.definition(command_services));
