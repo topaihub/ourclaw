@@ -13,6 +13,7 @@ pub const CliChannelSnapshot = struct {
     live_stream_count: usize,
     last_method: ?[]const u8,
     last_route_group: []const u8,
+    health_state: []const u8,
     last_session_id: ?[]const u8,
 };
 
@@ -21,6 +22,7 @@ pub const EdgeChannelSnapshot = struct {
     stream_count: usize,
     last_target: ?[]const u8,
     last_route_group: []const u8,
+    health_state: []const u8,
     last_session_id: ?[]const u8,
 };
 
@@ -61,6 +63,7 @@ pub const CliChannelRuntime = struct {
             .live_stream_count = self.live_stream_count,
             .last_method = self.last_method,
             .last_route_group = self.last_route_group,
+            .health_state = if (self.request_count > 0 or self.live_stream_count > 0) "active" else "idle",
             .last_session_id = self.last_session_id,
         };
     }
@@ -103,6 +106,7 @@ pub const EdgeChannelRuntime = struct {
             .stream_count = self.stream_count,
             .last_target = self.last_target,
             .last_route_group = self.last_route_group,
+            .health_state = if (self.request_count > 0 or self.stream_count > 0) "active" else "idle",
             .last_session_id = self.last_session_id,
         };
     }
@@ -226,6 +230,7 @@ test "cli channel runtime records requests and session ids" {
     try std.testing.expectEqual(@as(usize, 1), snapshot.live_stream_count);
     try std.testing.expectEqualStrings("agent.stream.live", snapshot.last_method.?);
     try std.testing.expectEqualStrings("agent", snapshot.last_route_group);
+    try std.testing.expectEqualStrings("active", snapshot.health_state);
     try std.testing.expectEqualStrings("sess_cli_channel", snapshot.last_session_id.?);
 }
 
@@ -242,11 +247,13 @@ test "bridge and http channel runtimes record targets and stream usage" {
     try std.testing.expectEqual(@as(usize, 1), bridge.stream_count);
     try std.testing.expectEqualStrings("agent.stream", bridge.last_target.?);
     try std.testing.expectEqualStrings("agent", bridge.last_route_group);
+    try std.testing.expectEqualStrings("active", bridge.health_state);
 
     const http = registry.httpSnapshot();
     try std.testing.expectEqual(@as(usize, 2), http.request_count);
     try std.testing.expectEqual(@as(usize, 1), http.stream_count);
     try std.testing.expectEqualStrings("/v1/agent/stream/sse", http.last_target.?);
     try std.testing.expectEqualStrings("agent", http.last_route_group);
+    try std.testing.expectEqualStrings("active", http.health_state);
     try std.testing.expectEqualStrings("sess_http", http.last_session_id.?);
 }
