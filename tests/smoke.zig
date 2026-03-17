@@ -922,6 +922,28 @@ test "providers status exposes capability surface" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthMessage\":") != null);
 }
 
+test "onboard summary exposes readiness and next step" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_onboard_summary",
+        .method = "onboard.summary",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"readyCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"gatewayPairingEnabled\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextStep\":") != null);
+}
+
 test "device pair control-plane commands manage pending requests" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

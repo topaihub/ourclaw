@@ -416,6 +416,15 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "onboard") or std.mem.eql(u8, args[0], "onboard.summary")) {
+        const params = try allocator.alloc(framework.ValidationField, 0);
+        return .{
+            .request = .{ .request_id = "cli_req_onboard_summary", .method = "onboard.summary", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "diagnostics.doctor")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
