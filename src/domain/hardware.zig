@@ -82,6 +82,26 @@ pub const HardwareRegistry = struct {
         return null;
     }
 
+    pub fn findMutable(self: *Self, id: []const u8) ?*HardwareNode {
+        for (self.nodes.items) |*node| {
+            if (std.mem.eql(u8, node.id, id)) return node;
+        }
+        return null;
+    }
+
+    pub fn probeById(self: *Self, id: []const u8) anyerror!*const HardwareNode {
+        const node = self.findMutable(id) orelse return error.HardwareNodeNotFound;
+        if (node.last_error_code) |value| {
+            self.allocator.free(value);
+            node.last_error_code = null;
+        }
+        probeNode(self.allocator, node) catch |err| switch (err) {
+            error.HardwareNodeOffline => {},
+            else => return err,
+        };
+        return node;
+    }
+
     fn detectKind(allocator: std.mem.Allocator, id: []const u8) anyerror![]u8 {
         if (std.mem.startsWith(u8, id, "gpu")) return allocator.dupe(u8, "gpu");
         if (std.mem.startsWith(u8, id, "sensor")) return allocator.dupe(u8, "sensor");
@@ -115,4 +135,13 @@ test "hardware registry maps offline node failure" {
     var registry = HardwareRegistry.init(std.testing.allocator);
     defer registry.deinit();
     try std.testing.expectError(error.HardwareNodeOffline, registry.register("gpu_offline", "Offline GPU"));
+}
+
+test "hardware registry probe by id updates node" {
+    var registry = HardwareRegistry.init(std.testing.allocator);
+    defer registry.deinit();
+    try registry.register("gpu0", "Primary GPU");
+    const before = registry.find("gpu0").?.probe_count;
+    const node = try registry.probeById("gpu0");
+    try std.testing.expect(node.probe_count > before);
 }

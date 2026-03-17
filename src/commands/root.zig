@@ -29,6 +29,7 @@ pub const device_token_revoke = @import("device_token_revoke.zig");
 pub const devices_list = @import("devices_list.zig");
 pub const node_list = @import("node_list.zig");
 pub const node_describe = @import("node_describe.zig");
+pub const node_invoke = @import("node_invoke.zig");
 pub const events_poll = @import("events_poll.zig");
 pub const events_subscribe = @import("events_subscribe.zig");
 pub const gateway_status = @import("gateway_status.zig");
@@ -115,6 +116,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(devices_list.definition(command_services));
     try registry.register(node_list.definition(command_services));
     try registry.register(node_describe.definition(command_services));
+    try registry.register(node_invoke.definition(command_services));
     try registry.register(events_poll.definition(command_services));
     try registry.register(events_subscribe.definition(command_services));
     try registry.register(gateway_status.definition(command_services));
