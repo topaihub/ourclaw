@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **Docs Governance 已完成（2026-03-17）**：
+  - `docs/README.md` 已收敛为四层首页导航
+  - `architecture/README.md` 与 `planning/README.md` 已补目录索引页
+  - `backup/planning/README.md` 已新增，旧 planning 文档已补明确归档说明
+
 - **F2 已完成（2026-03-17）**：
   - `providers.status` 已暴露 provider capability / model / health / refresh control surface
   - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（187/187）

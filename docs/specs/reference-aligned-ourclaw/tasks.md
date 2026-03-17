@@ -173,17 +173,20 @@
 
 ## 2. Docs Governance Tasks
 
-- [ ] **G1. 精简 docs 首页导航**
+- [x] **G1. 精简 docs 首页导航**
   - 主线落点：`ourclaw/docs/README.md`
   - 完成定义：主页只保留 `active spec / baseline / supporting / historical` 四层导航
+  - 当前进展（2026-03-17）：`docs/README.md` 已收敛为 `Active Spec / Baseline / Supporting / Historical` 四层入口
 
-- [ ] **G2. 给 `architecture/` 与 `planning/` 增加索引页**
+- [x] **G2. 给 `architecture/` 与 `planning/` 增加索引页**
   - 主线落点：`ourclaw/docs/architecture/README.md`、`ourclaw/docs/planning/README.md`
   - 完成定义：目录层级可一眼理解，无需翻长列表
+  - 当前进展（2026-03-17）：`architecture/README.md` 与 `planning/README.md` 已重写为目录入口索引页
 
-- [ ] **G3. 持续归档仍带任务语义的旧 planning 文档**
+- [x] **G3. 持续归档仍带任务语义的旧 planning 文档**
   - 主线落点：`ourclaw/docs/planning/*`
   - 完成定义：旧 planning 不再像 active task source
+  - 当前进展（2026-03-17）：`backup/planning/README.md` 已新增；`implementation-epics.md` 与 `llm-task-breakdown.md` 已补明确归档说明
 
 ## 3. 执行约定
 
