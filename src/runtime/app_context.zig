@@ -66,6 +66,9 @@ pub const AppContext = struct {
     daemon: *daemon.Daemon,
     effective_gateway_require_pairing: bool,
     effective_runtime_max_tool_rounds: usize,
+    effective_gateway_remote_enabled: bool,
+    effective_gateway_remote_default_endpoint: []u8,
+    effective_gateway_remote_revoke_on_disable: bool,
     config_hooks: *config_runtime_hooks.ConfigRuntimeHooks,
     services: services_model.CommandServices,
 
@@ -76,6 +79,9 @@ pub const AppContext = struct {
         errdefer allocator.destroy(self);
         self.effective_gateway_require_pairing = true;
         self.effective_runtime_max_tool_rounds = 4;
+        self.effective_gateway_remote_enabled = true;
+        self.effective_gateway_remote_default_endpoint = try allocator.dupe(u8, "mock://tunnel/healthy");
+        self.effective_gateway_remote_revoke_on_disable = true;
 
         const field_registry = try allocator.create(config.ConfigFieldRegistry);
         errdefer allocator.destroy(field_registry);
@@ -243,6 +249,9 @@ pub const AppContext = struct {
             .daemon = daemon_ref,
             .effective_gateway_require_pairing = self.effective_gateway_require_pairing,
             .effective_runtime_max_tool_rounds = self.effective_runtime_max_tool_rounds,
+            .effective_gateway_remote_enabled = self.effective_gateway_remote_enabled,
+            .effective_gateway_remote_default_endpoint = self.effective_gateway_remote_default_endpoint,
+            .effective_gateway_remote_revoke_on_disable = self.effective_gateway_remote_revoke_on_disable,
             .config_hooks = config_hooks,
             .services = undefined,
         };
@@ -305,6 +314,7 @@ pub const AppContext = struct {
         self.allocator.destroy(self.voice_runtime);
         self.pairing_registry.deinit();
         self.allocator.destroy(self.pairing_registry);
+        self.allocator.free(self.effective_gateway_remote_default_endpoint);
         self.mcp_runtime.deinit();
         self.allocator.destroy(self.mcp_runtime);
         self.tunnel_runtime.deinit();

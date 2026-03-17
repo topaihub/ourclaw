@@ -21,7 +21,10 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
-    const endpoint = if (ctx.param("endpoint")) |field| field.value.string else "mock://tunnel/healthy";
+    if (!app.effective_gateway_remote_enabled) {
+        return std.fmt.allocPrint(ctx.allocator, "{{\"enabled\":false,\"errorCode\":\"REMOTE_DISABLED_BY_POLICY\"}}", .{});
+    }
+    const endpoint = if (ctx.param("endpoint")) |field| field.value.string else app.effective_gateway_remote_default_endpoint;
     const kind_text = if (ctx.param("kind")) |field| field.value.string else "custom";
     const kind = if (std.mem.eql(u8, kind_text, "cloudflare")) tunnel.TunnelKind.cloudflare else if (std.mem.eql(u8, kind_text, "ngrok")) tunnel.TunnelKind.ngrok else if (std.mem.eql(u8, kind_text, "tailscale")) tunnel.TunnelKind.tailscale else tunnel.TunnelKind.custom;
 
