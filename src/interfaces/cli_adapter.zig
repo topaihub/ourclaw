@@ -571,7 +571,57 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
-    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "gateway.auth.status") or std.mem.eql(u8, args[0], "gateway.token.status") or std.mem.eql(u8, args[0], "gateway.token.generate") or std.mem.eql(u8, args[0], "gateway.token.rotate") or std.mem.eql(u8, args[0], "gateway.token.revoke") or std.mem.eql(u8, args[0], "gateway.password.status") or std.mem.eql(u8, args[0], "gateway.access.link") or std.mem.eql(u8, args[0], "gateway.remote.status") or std.mem.eql(u8, args[0], "gateway.remote.enable") or std.mem.eql(u8, args[0], "gateway.remote.disable") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status") or std.mem.eql(u8, args[0], "node.list") or std.mem.eql(u8, args[0], "devices.list")) {
+    if (std.mem.eql(u8, args[0], "gateway.remote.policy.set")) {
+        var remote_enabled: ?bool = null;
+        var default_endpoint: ?[]const u8 = null;
+        var revoke_token_on_disable: ?bool = null;
+        var index: usize = 1;
+        while (index < args.len) : (index += 1) {
+            if (std.mem.eql(u8, args[index], "--remote-enabled")) {
+                remote_enabled = true;
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--remote-disabled")) {
+                remote_enabled = false;
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--default-endpoint")) {
+                index += 1;
+                if (index >= args.len) return error.MissingEndpoint;
+                default_endpoint = args[index];
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--revoke-token-on-disable")) {
+                revoke_token_on_disable = true;
+                continue;
+            }
+            if (std.mem.eql(u8, args[index], "--keep-token-on-disable")) {
+                revoke_token_on_disable = false;
+                continue;
+            }
+        }
+        const count: usize = @as(usize, if (remote_enabled != null) 1 else 0) + @as(usize, if (default_endpoint != null) 1 else 0) + @as(usize, if (revoke_token_on_disable != null) 1 else 0);
+        const params = try allocator.alloc(framework.ValidationField, count);
+        var param_index: usize = 0;
+        if (remote_enabled) |value| {
+            params[param_index] = .{ .key = "remote_enabled", .value = .{ .boolean = value } };
+            param_index += 1;
+        }
+        if (default_endpoint) |value| {
+            params[param_index] = .{ .key = "default_endpoint", .value = .{ .string = try allocator.dupe(u8, value) } };
+            param_index += 1;
+        }
+        if (revoke_token_on_disable) |value| {
+            params[param_index] = .{ .key = "revoke_token_on_disable", .value = .{ .boolean = value } };
+        }
+        return .{
+            .request = .{ .request_id = "cli_req_gateway_remote_policy_set", .method = "gateway.remote.policy.set", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "gateway.auth.status") or std.mem.eql(u8, args[0], "gateway.token.status") or std.mem.eql(u8, args[0], "gateway.token.generate") or std.mem.eql(u8, args[0], "gateway.token.rotate") or std.mem.eql(u8, args[0], "gateway.token.revoke") or std.mem.eql(u8, args[0], "gateway.password.status") or std.mem.eql(u8, args[0], "gateway.access.link") or std.mem.eql(u8, args[0], "gateway.remote.status") or std.mem.eql(u8, args[0], "gateway.remote.enable") or std.mem.eql(u8, args[0], "gateway.remote.disable") or std.mem.eql(u8, args[0], "gateway.remote.policy.status") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status") or std.mem.eql(u8, args[0], "node.list") or std.mem.eql(u8, args[0], "devices.list")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
             .request = .{ .request_id = "cli_req_simple_query", .method = args[0], .params = params, .source = .cli, .authority = .admin },

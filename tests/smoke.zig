@@ -1108,6 +1108,53 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"enabled\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy?token=") != null);
 
+    const remote_policy_status = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_policy_status",
+        .method = "gateway.remote.policy.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_policy_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_policy_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_policy_status.result.?.success_json, "\"remoteEnabled\":true") != null);
+
+    const remote_policy_set_params = [_]framework.ValidationField{
+        .{ .key = "remote_enabled", .value = .{ .boolean = false } },
+        .{ .key = "default_endpoint", .value = .{ .string = "mock://tunnel/custom" } },
+        .{ .key = "revoke_token_on_disable", .value = .{ .boolean = false } },
+    };
+    const remote_policy_set = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_policy_set",
+        .method = "gateway.remote.policy.set",
+        .params = remote_policy_set_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_policy_set.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_policy_set.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_policy_set.result.?.success_json, "\"remoteEnabled\":false") != null);
+
+    const remote_enable_blocked = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_enable_blocked",
+        .method = "gateway.remote.enable",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_enable_blocked.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_enable_blocked.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_enable_blocked.result.?.success_json, "\"errorCode\":\"REMOTE_DISABLED_BY_POLICY\"") != null);
+
     const remote_disable = try dispatcher.dispatch(.{
         .request_id = "req_gateway_remote_disable",
         .method = "gateway.remote.disable",
@@ -1121,7 +1168,7 @@ test "gateway auth status exposes access summary" {
     };
     try std.testing.expect(remote_disable.ok);
     try std.testing.expect(std.mem.indexOf(u8, remote_disable.result.?.success_json, "\"disabled\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, remote_disable.result.?.success_json, "\"tokenRevoked\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, remote_disable.result.?.success_json, "\"tokenRevoked\":false") != null);
 
     const tunnel_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "custom" } },
@@ -1152,9 +1199,9 @@ test "gateway auth status exposes access summary" {
         .task_accepted => {},
     };
     try std.testing.expect(access_link_remote.ok);
-    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"remoteUrl\":\"mock://tunnel/healthy\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"requiresToken\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"remoteUrl\":\"mock://tunnel/healthy?token=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy?token=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"requiresToken\":true") != null);
 
     const revoke = try dispatcher.dispatch(.{
         .request_id = "req_gateway_token_revoke",
@@ -1168,7 +1215,7 @@ test "gateway auth status exposes access summary" {
         .task_accepted => {},
     };
     try std.testing.expect(revoke.ok);
-    try std.testing.expect(std.mem.indexOf(u8, revoke.result.?.success_json, "\"revoked\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, revoke.result.?.success_json, "\"revoked\":true") != null);
     try std.testing.expect(app.secret_store.get("gateway:shared_token") == null);
 
     const envelope_after_token = try dispatcher.dispatch(.{

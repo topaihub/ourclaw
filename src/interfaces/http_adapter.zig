@@ -305,6 +305,8 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/gateway/remote/status")) return "gateway.remote.status";
     if (std.mem.eql(u8, route, "/v1/gateway/remote/enable")) return "gateway.remote.enable";
     if (std.mem.eql(u8, route, "/v1/gateway/remote/disable")) return "gateway.remote.disable";
+    if (std.mem.eql(u8, route, "/v1/gateway/remote/policy/status")) return "gateway.remote.policy.status";
+    if (std.mem.eql(u8, route, "/v1/gateway/remote/policy/set")) return "gateway.remote.policy.set";
     if (std.mem.eql(u8, route, "/v1/gateway/start")) return "gateway.start";
     if (std.mem.eql(u8, route, "/v1/gateway/stop")) return "gateway.stop";
     if (std.mem.eql(u8, route, "/v1/gateway/reload")) return "gateway.reload";
