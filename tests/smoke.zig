@@ -978,6 +978,31 @@ test "device pair control-plane commands manage pending requests" {
     try std.testing.expect(std.mem.indexOf(u8, rejected.result.?.success_json, "\"pendingCount\":0") != null);
 }
 
+test "node list exposes runtime node surface" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = app.pairing_registry.approve("pair_1");
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_node_list",
+        .method = "node.list",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"count\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"approvedPairingCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthState\":\"ready\"") != null);
+}
+
 test "diagnostics commands return runtime summary and doctor checks" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
