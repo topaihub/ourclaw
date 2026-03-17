@@ -458,6 +458,17 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "diagnostics.remediate-preview") or std.mem.eql(u8, args[0], "diagnostics.remediate-apply")) {
+        if (args.len < 2) return error.MissingRemediationAction;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "action", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_diagnostics_remediate", .method = if (std.mem.eql(u8, args[0], "diagnostics.remediate-preview")) "diagnostics.remediate_preview" else "diagnostics.remediate_apply", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "device.pair.list")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{

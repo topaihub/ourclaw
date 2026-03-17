@@ -1262,6 +1262,36 @@ test "diagnostics commands return runtime summary and doctor checks" {
     try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"serviceState\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"hardwareCount\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, doctor.result.?.success_json, "\"brokenPeripheralCount\":") != null);
+
+    const remediate_preview_params = [_]framework.ValidationField{.{ .key = "action", .value = .{ .string = "generate_gateway_token" } }};
+    const remediate_preview = try dispatcher.dispatch(.{
+        .request_id = "req_diag_remediate_preview",
+        .method = "diagnostics.remediate_preview",
+        .params = remediate_preview_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remediate_preview.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remediate_preview.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remediate_preview.result.?.success_json, "\"wouldChange\":true") != null);
+
+    const remediate_apply = try dispatcher.dispatch(.{
+        .request_id = "req_diag_remediate_apply",
+        .method = "diagnostics.remediate_apply",
+        .params = remediate_preview_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remediate_apply.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remediate_apply.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remediate_apply.result.?.success_json, "\"action\":\"generate_gateway_token\"") != null);
+    try std.testing.expect(app.secret_store.get("gateway:shared_token") != null);
 }
 
 test "events subscribe and poll commands work together" {

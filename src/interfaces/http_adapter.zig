@@ -261,6 +261,8 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/config/compat-import")) return "config.compat_import";
     if (std.mem.eql(u8, route, "/v1/diagnostics/summary")) return "diagnostics.summary";
     if (std.mem.eql(u8, route, "/v1/diagnostics/doctor")) return "diagnostics.doctor";
+    if (std.mem.eql(u8, route, "/v1/diagnostics/remediate/preview")) return "diagnostics.remediate_preview";
+    if (std.mem.eql(u8, route, "/v1/diagnostics/remediate/apply")) return "diagnostics.remediate_apply";
     if (std.mem.eql(u8, route, "/v1/onboard/summary")) return "onboard.summary";
     if (std.mem.eql(u8, route, "/v1/onboard/apply-defaults")) return "onboard.apply_defaults";
     if (std.mem.eql(u8, route, "/v1/device/pair/list")) return "device.pair.list";
