@@ -15,6 +15,8 @@ pub const config_migrate_apply = @import("config_migrate_apply.zig");
 pub const config_compat_import = @import("config_compat_import.zig");
 pub const diagnostics_summary = @import("diagnostics_summary.zig");
 pub const diagnostics_doctor = @import("diagnostics_doctor.zig");
+pub const diagnostics_remediate_preview = @import("diagnostics_remediate_preview.zig");
+pub const diagnostics_remediate_apply = @import("diagnostics_remediate_apply.zig");
 pub const onboard_summary = @import("onboard_summary.zig");
 pub const onboard_apply_defaults = @import("onboard_apply_defaults.zig");
 pub const device_pair_list = @import("device_pair_list.zig");
@@ -87,6 +89,8 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(config_compat_import.definition(command_services));
     try registry.register(diagnostics_summary.definition(command_services));
     try registry.register(diagnostics_doctor.definition(command_services));
+    try registry.register(diagnostics_remediate_preview.definition(command_services));
+    try registry.register(diagnostics_remediate_apply.definition(command_services));
     try registry.register(onboard_summary.definition(command_services));
     try registry.register(onboard_apply_defaults.definition(command_services));
     try registry.register(device_pair_list.definition(command_services));
