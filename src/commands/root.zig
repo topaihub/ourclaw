@@ -34,6 +34,7 @@ pub const gateway_status = @import("gateway_status.zig");
 pub const gateway_auth_status = @import("gateway_auth_status.zig");
 pub const gateway_token_generate = @import("gateway_token_generate.zig");
 pub const gateway_access_link = @import("gateway_access_link.zig");
+pub const gateway_remote_status = @import("gateway_remote_status.zig");
 pub const service_status = @import("service_status.zig");
 pub const metrics_summary = @import("metrics_summary.zig");
 pub const observer_recent = @import("observer_recent.zig");
@@ -108,6 +109,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(gateway_auth_status.definition(command_services));
     try registry.register(gateway_token_generate.definition(command_services));
     try registry.register(gateway_access_link.definition(command_services));
+    try registry.register(gateway_remote_status.definition(command_services));
     try registry.register(gateway_start.definition(command_services));
     try registry.register(gateway_stop.definition(command_services));
     try registry.register(gateway_reload.definition(command_services));
