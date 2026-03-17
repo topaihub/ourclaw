@@ -111,6 +111,39 @@ pub const LogFieldValue = union(enum) {
 - `logs.recent` 应返回 `LogRecord` 的稳定子集或等价结构
 - `logs.export` 应导出 JSONL，不改变基础字段语义
 
+## 8.1 请求级日志约定
+
+截至 2026-03-17，`ourclaw` 的 HTTP / bridge / CLI 已开始统一接入请求级 trace。对这类 started/completed 日志，建议至少稳定包含：
+
+- `trace_id`
+- `request_id`
+- `source`
+- `method`
+- `path`
+- `query`（可选）
+- `status`（completed 时）
+- `duration_ms`（completed 时）
+
+建议消息：
+
+- `Request started`
+- `Request completed`
+
+## 8.2 步骤级日志约定
+
+截至 2026-03-17，系统也已开始接入步骤级 `StepTrace`。这类日志建议至少包含：
+
+- `step`
+- `duration_ms`
+- `threshold_ms`（可选）
+- `beyond_threshold`
+- `error_code`（可选）
+
+建议消息：
+
+- `Step started`
+- `Step completed`
+
 ## 9. 验收要求
 
 - console/file/memory 输出基于同一 `LogRecord`
