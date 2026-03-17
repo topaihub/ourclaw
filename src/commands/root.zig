@@ -17,6 +17,7 @@ pub const diagnostics_doctor = @import("diagnostics_doctor.zig");
 pub const device_pair_list = @import("device_pair_list.zig");
 pub const device_pair_approve = @import("device_pair_approve.zig");
 pub const device_pair_reject = @import("device_pair_reject.zig");
+pub const devices_list = @import("devices_list.zig");
 pub const node_list = @import("node_list.zig");
 pub const node_describe = @import("node_describe.zig");
 pub const events_poll = @import("events_poll.zig");
@@ -79,6 +80,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(device_pair_list.definition(command_services));
     try registry.register(device_pair_approve.definition(command_services));
     try registry.register(device_pair_reject.definition(command_services));
+    try registry.register(devices_list.definition(command_services));
     try registry.register(node_list.definition(command_services));
     try registry.register(node_describe.definition(command_services));
     try registry.register(events_poll.definition(command_services));
