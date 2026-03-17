@@ -61,6 +61,8 @@ pub fn preview(services: *services_model.CommandServices, action: RemediationAct
 
 pub fn apply(ctx: *const framework.CommandContext, services: *services_model.CommandServices, action: RemediationAction) anyerror![]const u8 {
     const app: *runtime_app.AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
+    var trace = try framework.StepTrace.begin(ctx.allocator, app.framework_context.logger, "diagnostics/remediate", @tagName(action), 1000);
+    defer trace.deinit();
 
     return switch (action) {
         .enable_pairing => blk: {
@@ -70,8 +72,12 @@ pub fn apply(ctx: *const framework.CommandContext, services: *services_model.Com
             var pipeline = app.makeConfigPipeline(write_fields[0..], registry.ConfigFieldRegistry.configRules());
             var attempt = try pipeline.applyWrite(updates[0..], false);
             defer attempt.deinit();
-            if (!attempt.report.isOk()) return error.ValidationFailed;
+            if (!attempt.report.isOk()) {
+                trace.finish("ValidationFailed");
+                return error.ValidationFailed;
+            }
             app.effective_gateway_require_pairing = true;
+            trace.finish(null);
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"enable_pairing\",\"applied\":{s},\"changed\":{d},\"gatewayRequirePairing\":true}}", .{ if (attempt.applied()) "true" else "false", if (attempt.stats) |stats| stats.changed_count else 0 });
         },
         .generate_gateway_token => blk: {
@@ -80,21 +86,26 @@ pub fn apply(ctx: *const framework.CommandContext, services: *services_model.Com
             var token_buf: [32]u8 = undefined;
             encodeHexLower(&token_buf, &bytes);
             try services.secret_store.put("gateway:shared_token", token_buf[0..]);
+            trace.finish(null);
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"generate_gateway_token\",\"applied\":true,\"token\":\"{s}\"}}", .{token_buf});
         },
         .install_service => blk: {
             const changed = app.service_manager.install();
+            trace.finish(null);
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"install_service\",\"applied\":true,\"changed\":{s},\"installed\":{s}}}", .{ if (changed) "true" else "false", if (app.service_manager.status().installed) "true" else "false" });
         },
         .activate_tunnel => blk: {
             services.tunnel_runtime.activate(.custom, "mock://tunnel/healthy") catch |err| {
                 try services.tunnel_runtime.noteActivationFailure("mock://tunnel/healthy", err);
+                trace.finish(@errorName(err));
                 break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"activate_tunnel\",\"applied\":false,\"errorCode\":\"{s}\"}}", .{@errorName(err)});
             };
+            trace.finish(null);
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"activate_tunnel\",\"applied\":true,\"active\":true,\"endpoint\":\"{s}\"}}", .{services.tunnel_runtime.endpoint});
         },
         .deactivate_tunnel => blk: {
             services.tunnel_runtime.deactivate();
+            trace.finish(null);
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"deactivate_tunnel\",\"applied\":true,\"active\":false}}", .{});
         },
     };
