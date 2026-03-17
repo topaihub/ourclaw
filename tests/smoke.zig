@@ -1108,6 +1108,21 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"enabled\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy?token=") != null);
 
+    const remote_disable = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_disable",
+        .method = "gateway.remote.disable",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_disable.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_disable.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_disable.result.?.success_json, "\"disabled\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, remote_disable.result.?.success_json, "\"tokenRevoked\":true") != null);
+
     const tunnel_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "custom" } },
         .{ .key = "endpoint", .value = .{ .string = "mock://tunnel/healthy" } },
@@ -1137,8 +1152,9 @@ test "gateway auth status exposes access summary" {
         .task_accepted => {},
     };
     try std.testing.expect(access_link_remote.ok);
-    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"remoteUrl\":\"mock://tunnel/healthy?token=") != null);
-    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy?token=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"remoteUrl\":\"mock://tunnel/healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link_remote.result.?.success_json, "\"requiresToken\":false") != null);
 
     const revoke = try dispatcher.dispatch(.{
         .request_id = "req_gateway_token_revoke",
@@ -1152,7 +1168,7 @@ test "gateway auth status exposes access summary" {
         .task_accepted => {},
     };
     try std.testing.expect(revoke.ok);
-    try std.testing.expect(std.mem.indexOf(u8, revoke.result.?.success_json, "\"revoked\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, revoke.result.?.success_json, "\"revoked\":false") != null);
     try std.testing.expect(app.secret_store.get("gateway:shared_token") == null);
 
     const envelope_after_token = try dispatcher.dispatch(.{
