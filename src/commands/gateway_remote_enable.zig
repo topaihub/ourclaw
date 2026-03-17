@@ -21,7 +21,10 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
+    var trace = try framework.StepTrace.begin(ctx.allocator, app.framework_context.logger, "gateway/remote", "enable", 1000);
+    defer trace.deinit();
     if (!app.effective_gateway_remote_enabled) {
+        trace.finish("REMOTE_DISABLED_BY_POLICY");
         return std.fmt.allocPrint(ctx.allocator, "{{\"enabled\":false,\"errorCode\":\"REMOTE_DISABLED_BY_POLICY\"}}", .{});
     }
     const endpoint = if (ctx.param("endpoint")) |field| field.value.string else app.effective_gateway_remote_default_endpoint;
@@ -30,6 +33,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
 
     services.tunnel_runtime.activate(kind, endpoint) catch |err| {
         try services.tunnel_runtime.noteActivationFailure(endpoint, err);
+        trace.finish(@errorName(err));
         return std.fmt.allocPrint(ctx.allocator, "{{\"enabled\":false,\"errorCode\":\"{s}\"}}", .{@errorName(err)});
     };
 
@@ -48,6 +52,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const remote_url = try std.fmt.allocPrint(ctx.allocator, "{s}?token={s}", .{ services.tunnel_runtime.endpoint, token });
     defer ctx.allocator.free(remote_url);
 
+    trace.finish(null);
     return std.fmt.allocPrint(ctx.allocator, "{{\"enabled\":true,\"kind\":\"{s}\",\"endpoint\":\"{s}\",\"localUrl\":\"{s}\",\"remoteUrl\":\"{s}\",\"preferredUrl\":\"{s}\"}}", .{ services.tunnel_runtime.kind.asText(), services.tunnel_runtime.endpoint, local_url, remote_url, remote_url });
 }
 

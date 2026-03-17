@@ -22,6 +22,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
     const app: *runtime_app.AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
     const install_service = if (ctx.param("install_service")) |field| field.value.boolean else false;
+    var trace = try framework.StepTrace.begin(ctx.allocator, app.framework_context.logger, "onboard", "apply_defaults", 1000);
+    defer trace.deinit();
 
     const pairing_field = registry.ConfigFieldRegistry.find("gateway.require_pairing") orelse return error.ConfigFieldUnknown;
     const max_tool_rounds_field = registry.ConfigFieldRegistry.find("runtime.max_tool_rounds") orelse return error.ConfigFieldUnknown;
@@ -34,12 +36,16 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     var pipeline = app.makeConfigPipeline(write_fields[0..], registry.ConfigFieldRegistry.configRules());
     var attempt = try pipeline.applyWrite(updates[0..], false);
     defer attempt.deinit();
-    if (!attempt.report.isOk()) return error.ValidationFailed;
+    if (!attempt.report.isOk()) {
+        trace.finish("ValidationFailed");
+        return error.ValidationFailed;
+    }
 
     app.effective_gateway_require_pairing = true;
     app.effective_runtime_max_tool_rounds = 4;
 
     const service_changed = if (install_service) app.service_manager.install() else false;
+    trace.finish(null);
     return std.fmt.allocPrint(ctx.allocator, "{{\"applied\":{s},\"changedCount\":{d},\"requiresRestart\":{s},\"installService\":{s},\"serviceChanged\":{s},\"gatewayRequirePairing\":{s},\"runtimeMaxToolRounds\":{d}}}", .{
         if (attempt.applied()) "true" else "false",
         if (attempt.stats) |stats| stats.changed_count else 0,
