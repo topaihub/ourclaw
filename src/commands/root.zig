@@ -5,6 +5,7 @@ const services = @import("../domain/services.zig");
 pub const MODULE_NAME = "commands";
 
 pub const app_meta = @import("app_meta.zig");
+pub const status_all = @import("status_all.zig");
 pub const agent_run = @import("agent_run.zig");
 pub const agent_stream = @import("agent_stream.zig");
 pub const config_get = @import("config_get.zig");
@@ -72,6 +73,7 @@ pub const providers_status = @import("providers_status.zig");
 
 pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: *services.CommandServices) anyerror!void {
     try registry.register(app_meta.definition(command_services));
+    try registry.register(status_all.definition(command_services));
     try registry.register(agent_run.definition(command_services));
     try registry.register(agent_stream.definition(command_services));
     try registry.register(config_get.definition(command_services));
