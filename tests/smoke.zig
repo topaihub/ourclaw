@@ -1045,6 +1045,21 @@ test "gateway auth status exposes access summary" {
     };
     try std.testing.expect(envelope_after_token.ok);
     try std.testing.expect(std.mem.indexOf(u8, envelope_after_token.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
+
+    const access_link = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_access_link",
+        .method = "gateway.access.link",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (access_link.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(access_link.ok);
+    try std.testing.expect(std.mem.indexOf(u8, access_link.result.?.success_json, "\"requiresToken\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, access_link.result.?.success_json, "?token=") != null);
 }
 
 test "device pair control-plane commands manage pending requests" {
