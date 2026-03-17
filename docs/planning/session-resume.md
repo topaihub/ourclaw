@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **E1 已完成（2026-03-16）**：
+  - `ourclaw-manager` 的 `task` 与 `session` typed snapshot 已收紧到 stable 字段
+  - `manager-runtime-surface.md` 已明确写入 stable-only typed reader 约束
+  - 验证：`ourclaw-manager` 执行 `zig build test --summary all -j1` 通过（19/19）
+
 - **D2 已完成（2026-03-16）**：
   - CLI 已补齐 `agent.*`、`memory.summary`、`session.get`、`events.subscribe/poll`、`observer.recent` 的关键参数面
   - HTTP / bridge 继续保留通用 `params` 透传，三入口当前已达到主要命令参数支持一致

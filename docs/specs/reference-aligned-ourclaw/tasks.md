@@ -132,9 +132,14 @@
 
 ### Wave E — Manager contract 深化
 
-- [ ] **E1. 把 stable/provisional 从文档推进到类型和 API 约束**
+- [x] **E1. 把 stable/provisional 从文档推进到类型和 API 约束**
   - 主线落点：`ourclaw/docs/contracts/*`、`ourclaw-manager/src/runtime_client/*`
   - 完成定义：manager typed client 对稳定字段形成更强约束
+  - 当前进展（2026-03-16）：
+    - 已完成第一子步：`task.get` / `task.by_request` 的 typed snapshot 已收紧到 stable 字段，`result` 保留在 raw result 路径
+    - 已完成第二子步：`session.get` 的 typed snapshot 已收紧到 stable 字段，预算类与 `latest*` provisional 字段不再进入稳定 typed snapshot
+    - 已完成第三子步：合同文档已显式补充说明 manager typed client 只绑定 stable 字段，provisional 继续走 raw/debug 路径
+    - 完成判断：stable/provisional 当前已真正推进到类型/API 约束层，E1 可视为完成
 
 - [ ] **E2. 扩展 manager 对 runtime 的 typed 消费面**
   - 主线落点：`ourclaw-manager/src/view_models/*`
