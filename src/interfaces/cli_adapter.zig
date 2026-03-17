@@ -998,8 +998,13 @@ pub fn dispatchAndRenderJson(allocator: std.mem.Allocator, app: *runtime.AppCont
 
     try app.channel_registry.recordCliRequest(owned.request.method, extractStringParam(owned.params, "session_id"));
 
+    var trace = try framework.observability.request_trace.begin(allocator, app.framework_context.logger, .cli, owned.request.request_id, owned.request.method, owned.request.method, null);
+    defer trace.deinit();
+    owned.request.trace_id = trace.trace_id;
+
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(owned.request, false);
+    framework.observability.request_trace.complete(app.framework_context.logger, &trace, if (envelope.ok) 200 else 400, if (!envelope.ok and envelope.app_error != null) envelope.app_error.?.code else null);
     return renderProtocolEnvelopeJson(allocator, envelope);
 }
 
@@ -1017,6 +1022,8 @@ pub fn streamLive(allocator: std.mem.Allocator, app: *runtime.AppContext, args: 
     if (!std.mem.eql(u8, owned.request.method, "agent.stream")) return error.CliLiveStreamUnsupported;
 
     try app.channel_registry.recordCliLiveStream(extractStringParam(owned.params, "session_id"));
+    var trace = try framework.observability.request_trace.begin(allocator, app.framework_context.logger, .cli, owned.request.request_id, owned.request.method, owned.request.method, null);
+    defer trace.deinit();
 
     const options = try parseLiveOptions(args);
     try stream_projection.writeBridgeAgentStream(allocator, app, .{
@@ -1032,6 +1039,7 @@ pub fn streamLive(allocator: std.mem.Allocator, app: *runtime.AppContext, args: 
             .text_delta_throttle_window_ms = options.text_delta_throttle_window_ms,
         },
     }, sink);
+    framework.observability.request_trace.complete(app.framework_context.logger, &trace, 200, null);
 }
 
 fn extractStringParam(params: []const framework.ValidationField, key: []const u8) ?[]const u8 {
@@ -1220,6 +1228,7 @@ test "cli adapter dispatches app meta" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"result\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"meta\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"traceId\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"appName\":\"ourclaw\"") != null);
 }
 

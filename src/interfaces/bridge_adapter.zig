@@ -14,14 +14,18 @@ pub const BridgeRequest = struct {
 
 pub fn handle(allocator: std.mem.Allocator, app: *runtime.AppContext, request: BridgeRequest) anyerror![]u8 {
     try app.channel_registry.recordBridgeRequest(request.method, extractStringParam(request.params, "session_id"));
+    var trace = try framework.observability.request_trace.begin(allocator, app.framework_context.logger, .bridge, request.request_id, request.method, request.method, null);
+    defer trace.deinit();
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(.{
         .request_id = request.request_id,
         .method = request.method,
         .params = request.params,
         .source = .bridge,
+        .trace_id = trace.trace_id,
         .authority = request.authority,
     }, false);
+    framework.observability.request_trace.complete(app.framework_context.logger, &trace, if (envelope.ok) 200 else 400, if (!envelope.ok and envelope.app_error != null) envelope.app_error.?.code else null);
     return cli.renderProtocolEnvelopeJson(allocator, envelope);
 }
 
@@ -70,6 +74,7 @@ test "bridge adapter dispatches config get" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"result\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"meta\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"traceId\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\":\"gateway.port\"") != null);
 }
 

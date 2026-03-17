@@ -205,14 +205,20 @@ pub fn handle(allocator: std.mem.Allocator, app: *runtime.AppContext, request: H
 
     const method = routeToMethod(request.route) orelse return makeProtocolErrorResponse(allocator, request.request_id, 404, "CORE_METHOD_NOT_FOUND", "route not found");
 
+    var trace = try framework.observability.request_trace.begin(allocator, app.framework_context.logger, .http, request.request_id, method, request.route, null);
+    defer trace.deinit();
+
     var dispatcher = app.makeDispatcher();
     const envelope = try dispatcher.dispatch(.{
         .request_id = request.request_id,
         .method = method,
         .params = request.params,
         .source = .http,
+        .trace_id = trace.trace_id,
         .authority = request.authority,
     }, false);
+
+    framework.observability.request_trace.complete(app.framework_context.logger, &trace, statusCodeForEnvelope(envelope), if (!envelope.ok and envelope.app_error != null) envelope.app_error.?.code else null);
 
     return .{
         .status_code = statusCodeForEnvelope(envelope),
@@ -521,6 +527,7 @@ test "http adapter maps route to app meta" {
     try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"result\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"meta\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"traceId\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, response.body_json, "\"appName\":\"ourclaw\"") != null);
 }
 
