@@ -65,6 +65,9 @@ pub const ConfigRuntimeHooks = struct {
     }
 
     fn apply(self: *Self, change: *const framework.ConfigChange) anyerror!void {
+        var trace = try framework.StepTrace.begin(self.allocator, self.logger, "config/side_effect", change.path, 250);
+        defer trace.deinit();
+
         try self.record_sink.apply(change);
 
         switch (change.side_effect_kind) {
@@ -76,6 +79,8 @@ pub const ConfigRuntimeHooks = struct {
             }),
             .none => {},
         }
+
+        trace.finish(null);
     }
 
     fn afterWrite(self: *Self, summary: *const framework.ConfigPostWriteSummary) anyerror!void {

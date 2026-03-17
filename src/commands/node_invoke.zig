@@ -19,15 +19,27 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
+    const app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
     const id = ctx.param("id").?.value.string;
     const action = ctx.param("action").?.value.string;
 
+    var trace = try framework.StepTrace.begin(ctx.allocator, app.framework_context.logger, "node/invoke", action, 500);
+    defer trace.deinit();
+
     const node = if (std.mem.eql(u8, action, "health_check"))
-        services.hardware_registry.find(id) orelse return error.HardwareNodeNotFound
+        services.hardware_registry.find(id) orelse {
+            trace.finish("HardwareNodeNotFound");
+            return error.HardwareNodeNotFound;
+        }
     else if (std.mem.eql(u8, action, "probe"))
-        try services.hardware_registry.probeById(id)
-    else
+        services.hardware_registry.probeById(id) catch |err| {
+            trace.finish(@errorName(err));
+            return err;
+        }
+    else {
+        trace.finish("UnsupportedNodeAction");
         return error.UnsupportedNodeAction;
+    };
 
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(ctx.allocator);
@@ -47,5 +59,6 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         try writer.writeAll("null");
     }
     try writer.writeByte('}');
+    trace.finish(null);
     return ctx.allocator.dupe(u8, buf.items);
 }
