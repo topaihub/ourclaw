@@ -1032,19 +1032,33 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(std.mem.indexOf(u8, token.result.?.success_json, "\"generated\":true") != null);
     try std.testing.expect(app.secret_store.get("gateway:shared_token") != null);
 
-    const envelope_after_token = try dispatcher.dispatch(.{
-        .request_id = "req_gateway_auth_status_after_token",
-        .method = "gateway.auth.status",
+    const token_status = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_token_status",
+        .method = "gateway.token.status",
         .params = &.{},
         .source = .@"test",
         .authority = .admin,
     }, false);
-    defer switch (envelope_after_token.result.?) {
+    defer switch (token_status.result.?) {
         .success_json => |json| std.testing.allocator.free(json),
         .task_accepted => {},
     };
-    try std.testing.expect(envelope_after_token.ok);
-    try std.testing.expect(std.mem.indexOf(u8, envelope_after_token.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
+    try std.testing.expect(token_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, token_status.result.?.success_json, "\"configured\":true") != null);
+
+    const rotate = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_token_rotate",
+        .method = "gateway.token.rotate",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (rotate.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(rotate.ok);
+    try std.testing.expect(std.mem.indexOf(u8, rotate.result.?.success_json, "\"rotated\":true") != null);
 
     const access_link = try dispatcher.dispatch(.{
         .request_id = "req_gateway_access_link",
@@ -1076,6 +1090,35 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"tunnelActive\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"nextAction\":\"activate_tunnel\"") != null);
+
+    const revoke = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_token_revoke",
+        .method = "gateway.token.revoke",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (revoke.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(revoke.ok);
+    try std.testing.expect(std.mem.indexOf(u8, revoke.result.?.success_json, "\"revoked\":true") != null);
+    try std.testing.expect(app.secret_store.get("gateway:shared_token") == null);
+
+    const envelope_after_token = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_auth_status_after_token",
+        .method = "gateway.auth.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope_after_token.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope_after_token.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope_after_token.result.?.success_json, "\"sharedTokenConfigured\":false") != null);
 }
 
 test "device pair control-plane commands manage pending requests" {
