@@ -883,6 +883,30 @@ test "channels status exposes routing groups" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthState\":\"active\"") != null);
 }
 
+test "providers status exposes capability surface" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_providers_status",
+        .method = "providers.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"count\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"supportsStreaming\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"supportsTools\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"modelCount\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthMessage\":") != null);
+}
+
 test "diagnostics commands return runtime summary and doctor checks" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
