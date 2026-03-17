@@ -982,6 +982,7 @@ test "device pair control-plane commands manage pending requests" {
     try std.testing.expect(approved.ok);
     try std.testing.expect(std.mem.indexOf(u8, approved.result.?.success_json, "\"state\":\"approved\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, approved.result.?.success_json, "\"pendingCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, approved.result.?.success_json, "\"token\":\"devtok_") != null);
 
     const reject_params = [_]framework.ValidationField{.{ .key = "id", .value = .{ .string = "pair_2" } }};
     const rejected = try dispatcher.dispatch(.{
@@ -998,6 +999,35 @@ test "device pair control-plane commands manage pending requests" {
     try std.testing.expect(rejected.ok);
     try std.testing.expect(std.mem.indexOf(u8, rejected.result.?.success_json, "\"state\":\"rejected\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, rejected.result.?.success_json, "\"pendingCount\":0") != null);
+
+    const rotate_params = [_]framework.ValidationField{.{ .key = "id", .value = .{ .string = "pair_1" } }};
+    const rotated = try dispatcher.dispatch(.{
+        .request_id = "req_device_token_rotate",
+        .method = "device.token.rotate",
+        .params = rotate_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (rotated.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(rotated.ok);
+    try std.testing.expect(std.mem.indexOf(u8, rotated.result.?.success_json, "\"token\":\"devtok_") != null);
+
+    const revoked = try dispatcher.dispatch(.{
+        .request_id = "req_device_token_revoke",
+        .method = "device.token.revoke",
+        .params = rotate_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (revoked.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(revoked.ok);
+    try std.testing.expect(std.mem.indexOf(u8, revoked.result.?.success_json, "\"token\":null") != null);
 }
 
 test "node list exposes runtime node surface" {
