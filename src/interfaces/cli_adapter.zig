@@ -35,6 +35,15 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "status") or std.mem.eql(u8, args[0], "status.all")) {
+        const params = try allocator.alloc(framework.ValidationField, 0);
+        return .{
+            .request = .{ .request_id = "cli_req_status_all", .method = "status.all", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "agent.run")) {
         if (args.len < 3) return error.MissingAgentPrompt;
         var with_tool: ?[]const u8 = null;

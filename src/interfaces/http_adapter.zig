@@ -250,6 +250,7 @@ pub fn handleGatewayAgentStreamWebSocket(allocator: std.mem.Allocator, app: *run
 }
 
 fn routeToMethod(route: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, route, "/v1/status")) return "status.all";
     if (std.mem.eql(u8, route, "/v1/app/meta")) return "app.meta";
     if (std.mem.eql(u8, route, "/v1/agent/run")) return "agent.run";
     if (std.mem.eql(u8, route, "/v1/agent/stream")) return "agent.stream";

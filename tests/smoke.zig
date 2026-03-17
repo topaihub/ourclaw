@@ -970,6 +970,30 @@ test "onboard apply defaults updates runtime and service state" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"runtimeMaxToolRounds\":4") != null);
 }
 
+test "status all exposes product overview" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+    try app.pairing_registry.create("telegram", "user_a", "123456");
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_status_all",
+        .method = "status.all",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"gateway\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"providers\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"pairing\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextAction\":") != null);
+}
+
 test "device pair control-plane commands manage pending requests" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
