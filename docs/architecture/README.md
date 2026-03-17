@@ -1,40 +1,40 @@
 # architecture
 
-## 角色
+`ourclaw/docs/architecture/` 只负责解释 `ourclaw` 业务层本身的结构，不再承担 `framework` 底座文档职责。
 
-`ourclaw/docs/architecture/` 现在只负责解释：
+## 建议阅读顺序
 
-- `ourclaw` 业务层如何消费共享底座
-- 当前业务域的边界、角色和演进意图
+1. `overall-design.md`
+2. `agent-runtime.md`
+3. `provider-channel-tool.md`
+4. `config-runtime.md`
+5. `adapters.md`
+6. `manager-reuse.md`
 
-它不再承担“框架底座能力说明”的职责。
-
-## 已迁移到 framework 的底座文档
-
-以下主题现在属于 `framework` 共享能力：
-
-- `framework/docs/architecture/logging.md`
-- `framework/docs/architecture/validation.md`
-- `framework/docs/architecture/runtime-pipeline.md`
-
-在本目录下同名文件仅保留为跳转页。
-
-## 当前建议保留并继续更新的文档
+## 文件索引
 
 - `overall-design.md`
+  - 解释 `framework / ourclaw / ourclaw-manager` 三层关系
 - `agent-runtime.md`
+  - 解释 agent runtime、prompt、tool、memory、session 的主链路
 - `provider-channel-tool.md`
+  - 解释 provider / channel / tool 三个扩展面如何协作
 - `config-runtime.md`
+  - 解释 config schema、runtime hook、control-plane 与运行态的关系
 - `adapters.md`
+  - 解释 CLI / HTTP / bridge 等接口层适配方式
 - `manager-reuse.md`
+  - 解释 manager 如何复用 runtime contract / runtime_client
 
-## 后续建议
+## 不再在这里展开的主题
 
-- `overall-design.md`：按当前 `framework / ourclaw / ourclaw-manager` 三层结构重写顶部背景说明
-- `manager-reuse.md`：按当前 `runtime_client` 与 manager contract 现状更新复用边界
-- `agent-runtime.md`、`provider-channel-tool.md`：把“尚未落地”的旧表述改成“已落第一版、继续深化”的现状描述
+以下属于 `framework` 通用底座能力，应直接去 `framework/docs/architecture/`：
+
+- `logging.md`
+- `validation.md`
+- `runtime-pipeline.md`
 
 ## 一句结论
 
-如果你想知道“底座能力本身是什么”，去看 `framework/docs/`；
-如果你想知道“ourclaw 业务层怎样使用这些能力”，看这里。
+如果要理解 `ourclaw` 业务结构，看这里；
+如果要理解共享底座能力，看 `framework/docs/architecture/`。
