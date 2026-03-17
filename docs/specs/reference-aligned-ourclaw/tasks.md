@@ -141,9 +141,14 @@
     - 已完成第三子步：合同文档已显式补充说明 manager typed client 只绑定 stable 字段，provisional 继续走 raw/debug 路径
     - 完成判断：stable/provisional 当前已真正推进到类型/API 约束层，E1 可视为完成
 
-- [ ] **E2. 扩展 manager 对 runtime 的 typed 消费面**
+- [x] **E2. 扩展 manager 对 runtime 的 typed 消费面**
   - 主线落点：`ourclaw-manager/src/view_models/*`
   - 完成定义：主要 view model 不再以原始 JSON 作为主数据源
+  - 当前进展（2026-03-17）：
+    - 已完成第一子步：`StatusViewModel` 已切到以 `gateway/service/heartbeat` typed snapshot 为主
+    - 已完成第二子步：`DiagnosticsViewModel` 与 `LogsViewModel` 已切到以 typed snapshot 为主
+    - 已完成第三子步：`ConfigClient` 已新增 `config.get` typed snapshot，`ConfigViewModel` 的读取路径已开始消费 typed config snapshot
+    - 完成判断：manager 侧主要 view model 当前已不再以原始 JSON 作为主数据源，E2 可视为完成
 
 ### Wave F — 渠道与产品表面对齐
 

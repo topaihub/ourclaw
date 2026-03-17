@@ -32,6 +32,11 @@
 
 ## 最近结论
 
+- **E2 已完成（2026-03-17）**：
+  - `StatusViewModel`、`DiagnosticsViewModel`、`LogsViewModel` 已切到 typed snapshot 主路径
+  - `ConfigViewModel` 的 `config.get` 读取路径也已开始消费 typed snapshot
+  - 验证：`ourclaw-manager` 执行 `zig build test --summary all -j1` 通过（20/20）
+
 - **E1 已完成（2026-03-16）**：
   - `ourclaw-manager` 的 `task` 与 `session` typed snapshot 已收紧到 stable 字段
   - `manager-runtime-surface.md` 已明确写入 stable-only typed reader 约束
