@@ -18,6 +18,8 @@ pub const onboard_summary = @import("onboard_summary.zig");
 pub const device_pair_list = @import("device_pair_list.zig");
 pub const device_pair_approve = @import("device_pair_approve.zig");
 pub const device_pair_reject = @import("device_pair_reject.zig");
+pub const device_token_rotate = @import("device_token_rotate.zig");
+pub const device_token_revoke = @import("device_token_revoke.zig");
 pub const devices_list = @import("devices_list.zig");
 pub const node_list = @import("node_list.zig");
 pub const node_describe = @import("node_describe.zig");
@@ -82,6 +84,8 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(device_pair_list.definition(command_services));
     try registry.register(device_pair_approve.definition(command_services));
     try registry.register(device_pair_reject.definition(command_services));
+    try registry.register(device_token_rotate.definition(command_services));
+    try registry.register(device_token_revoke.definition(command_services));
     try registry.register(devices_list.definition(command_services));
     try registry.register(node_list.definition(command_services));
     try registry.register(node_describe.definition(command_services));
