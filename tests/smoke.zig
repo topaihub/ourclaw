@@ -1184,6 +1184,63 @@ test "gateway auth status exposes access summary" {
     };
     try std.testing.expect(envelope_after_token.ok);
     try std.testing.expect(std.mem.indexOf(u8, envelope_after_token.result.?.success_json, "\"sharedTokenConfigured\":false") != null);
+
+    const password_set_params = [_]framework.ValidationField{.{ .key = "password", .value = .{ .string = "hunter2" } }};
+    const password_set = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_password_set",
+        .method = "gateway.password.set",
+        .params = password_set_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (password_set.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(password_set.ok);
+
+    const password_status = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_password_status",
+        .method = "gateway.password.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (password_status.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(password_status.ok);
+    try std.testing.expect(std.mem.indexOf(u8, password_status.result.?.success_json, "\"configured\":true") != null);
+
+    const auth_after_password = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_auth_status_after_password",
+        .method = "gateway.auth.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (auth_after_password.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(auth_after_password.ok);
+    try std.testing.expect(std.mem.indexOf(u8, auth_after_password.result.?.success_json, "\"passwordSupported\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, auth_after_password.result.?.success_json, "\"passwordConfigured\":true") != null);
+
+    const password_clear = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_password_clear",
+        .method = "gateway.password.clear",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (password_clear.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(password_clear.ok);
+    try std.testing.expect(app.secret_store.get("gateway:password") == null);
 }
 
 test "device pair control-plane commands manage pending requests" {

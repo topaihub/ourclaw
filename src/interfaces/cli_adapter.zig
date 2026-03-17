@@ -551,7 +551,27 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
-    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "gateway.auth.status") or std.mem.eql(u8, args[0], "gateway.token.status") or std.mem.eql(u8, args[0], "gateway.token.generate") or std.mem.eql(u8, args[0], "gateway.token.rotate") or std.mem.eql(u8, args[0], "gateway.token.revoke") or std.mem.eql(u8, args[0], "gateway.access.link") or std.mem.eql(u8, args[0], "gateway.remote.status") or std.mem.eql(u8, args[0], "gateway.remote.enable") or std.mem.eql(u8, args[0], "gateway.remote.disable") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status") or std.mem.eql(u8, args[0], "node.list") or std.mem.eql(u8, args[0], "devices.list")) {
+    if (std.mem.eql(u8, args[0], "gateway.password.set")) {
+        if (args.len < 2) return error.MissingPassword;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "password", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_gateway_password_set", .method = "gateway.password.set", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "gateway.password.clear")) {
+        const params = try allocator.alloc(framework.ValidationField, 0);
+        return .{
+            .request = .{ .request_id = "cli_req_gateway_password_clear", .method = "gateway.password.clear", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "gateway.auth.status") or std.mem.eql(u8, args[0], "gateway.token.status") or std.mem.eql(u8, args[0], "gateway.token.generate") or std.mem.eql(u8, args[0], "gateway.token.rotate") or std.mem.eql(u8, args[0], "gateway.token.revoke") or std.mem.eql(u8, args[0], "gateway.password.status") or std.mem.eql(u8, args[0], "gateway.access.link") or std.mem.eql(u8, args[0], "gateway.remote.status") or std.mem.eql(u8, args[0], "gateway.remote.enable") or std.mem.eql(u8, args[0], "gateway.remote.disable") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status") or std.mem.eql(u8, args[0], "node.list") or std.mem.eql(u8, args[0], "devices.list")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
             .request = .{ .request_id = "cli_req_simple_query", .method = args[0], .params = params, .source = .cli, .authority = .admin },

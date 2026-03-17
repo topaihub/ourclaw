@@ -295,6 +295,12 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/gateway/token/generate")) return "gateway.token.generate";
     if (std.mem.eql(u8, route, "/v1/gateway/token/rotate")) return "gateway.token.rotate";
     if (std.mem.eql(u8, route, "/v1/gateway/token/revoke")) return "gateway.token.revoke";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/status")) return "gateway.password.status";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/set")) return "gateway.password.set";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/clear")) return "gateway.password.clear";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/status")) return "gateway.password.status";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/set")) return "gateway.password.set";
+    if (std.mem.eql(u8, route, "/v1/gateway/password/clear")) return "gateway.password.clear";
     if (std.mem.eql(u8, route, "/v1/gateway/access/link")) return "gateway.access.link";
     if (std.mem.eql(u8, route, "/v1/gateway/remote/status")) return "gateway.remote.status";
     if (std.mem.eql(u8, route, "/v1/gateway/remote/enable")) return "gateway.remote.enable";
