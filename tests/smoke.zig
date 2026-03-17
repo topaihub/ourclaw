@@ -1351,6 +1351,35 @@ test "diagnostics commands return runtime summary and doctor checks" {
     try std.testing.expect(remediate_apply.ok);
     try std.testing.expect(std.mem.indexOf(u8, remediate_apply.result.?.success_json, "\"action\":\"generate_gateway_token\"") != null);
     try std.testing.expect(app.secret_store.get("gateway:shared_token") != null);
+
+    const tunnel_preview_params = [_]framework.ValidationField{.{ .key = "action", .value = .{ .string = "activate_tunnel" } }};
+    const tunnel_preview = try dispatcher.dispatch(.{
+        .request_id = "req_diag_tunnel_preview",
+        .method = "diagnostics.remediate_preview",
+        .params = tunnel_preview_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (tunnel_preview.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(tunnel_preview.ok);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_preview.result.?.success_json, "\"action\":\"activate_tunnel\"") != null);
+
+    const tunnel_apply = try dispatcher.dispatch(.{
+        .request_id = "req_diag_tunnel_apply",
+        .method = "diagnostics.remediate_apply",
+        .params = tunnel_preview_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (tunnel_apply.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(tunnel_apply.ok);
+    try std.testing.expect(std.mem.indexOf(u8, tunnel_apply.result.?.success_json, "\"active\":true") != null);
 }
 
 test "events subscribe and poll commands work together" {

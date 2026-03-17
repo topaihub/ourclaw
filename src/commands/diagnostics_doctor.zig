@@ -18,6 +18,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const app: *const @import("../runtime/app_context.zig").AppContext = @ptrCast(@alignCast(services.app_context_ptr.?));
     const gateway_status = app.gateway_host.status();
     const service_status = app.service_manager.status();
+    const tunnel = services.tunnel_runtime;
+    const shared_token_configured = services.secret_store.get("gateway:shared_token") != null;
 
     var issues: std.ArrayListUnmanaged([]const u8) = .empty;
     defer issues.deinit(ctx.allocator);
@@ -57,6 +59,8 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     if (gateway_status.running and !gateway_status.handler_attached) try issues.append(ctx.allocator, "gateway handler is not attached");
     if (service_status.restart_budget_exhausted) try issues.append(ctx.allocator, "service restart budget exhausted");
     if (service_status.stale_process_detected) try issues.append(ctx.allocator, "stale service process detected");
+    if (shared_token_configured and !tunnel.active) try issues.append(ctx.allocator, "remote access token exists but tunnel is not active");
+    if (tunnel.active and tunnel.health_state != .ready) try issues.append(ctx.allocator, "remote tunnel is unhealthy");
     if (unhealthy_provider_count > 0) try issues.append(ctx.allocator, "one or more providers are unhealthy");
     if (broken_hardware_count > 0) try issues.append(ctx.allocator, "one or more hardware nodes are unhealthy");
     if (broken_peripheral_count > 0) try issues.append(ctx.allocator, "one or more peripherals are unhealthy");
@@ -81,7 +85,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     }
     try writer.writeByte(']');
     try writer.writeAll(",\"checks\":{");
-    try writer.print("\"providerCount\":{d},\"healthyProviderCount\":{d},\"unhealthyProviderCount\":{d},\"channelCount\":{d},\"toolCount\":{d},\"commandCount\":{d},\"secretCount\":{d},\"hardwareCount\":{d},\"brokenHardwareCount\":{d},\"peripheralCount\":{d},\"brokenPeripheralCount\":{d},\"gatewayRequirePairing\":{s},\"gatewayRunning\":{s},\"gatewayListenerReady\":{s},\"gatewayHandlerAttached\":{s},\"serviceState\":\"{s}\",\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"recoveryAction\":\"{s}\"", .{
+    try writer.print("\"providerCount\":{d},\"healthyProviderCount\":{d},\"unhealthyProviderCount\":{d},\"channelCount\":{d},\"toolCount\":{d},\"commandCount\":{d},\"secretCount\":{d},\"hardwareCount\":{d},\"brokenHardwareCount\":{d},\"peripheralCount\":{d},\"brokenPeripheralCount\":{d},\"gatewayRequirePairing\":{s},\"gatewayRunning\":{s},\"gatewayListenerReady\":{s},\"gatewayHandlerAttached\":{s},\"sharedTokenConfigured\":{s},\"tunnelActive\":{s},\"tunnelHealthState\":\"{s}\",\"serviceState\":\"{s}\",\"restartBudgetExhausted\":{s},\"staleProcessDetected\":{s},\"recoveryAction\":\"{s}\"", .{
         services.provider_registry.count(),
         healthy_provider_count,
         unhealthy_provider_count,
@@ -97,6 +101,9 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         if (gateway_status.running) "true" else "false",
         if (gateway_status.listener_ready) "true" else "false",
         if (gateway_status.handler_attached) "true" else "false",
+        if (shared_token_configured) "true" else "false",
+        if (tunnel.active) "true" else "false",
+        tunnel.health_state.asText(),
         service_status.state.asText(),
         if (service_status.restart_budget_exhausted) "true" else "false",
         if (service_status.stale_process_detected) "true" else "false",

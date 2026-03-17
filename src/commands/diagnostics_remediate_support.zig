@@ -8,6 +8,8 @@ pub const RemediationAction = enum {
     enable_pairing,
     generate_gateway_token,
     install_service,
+    activate_tunnel,
+    deactivate_tunnel,
 
     pub fn parse(raw: []const u8) anyerror!RemediationAction {
         return std.meta.stringToEnum(RemediationAction, raw) orelse error.UnknownRemediationAction;
@@ -42,6 +44,18 @@ pub fn preview(services: *services_model.CommandServices, action: RemediationAct
             .requires_restart = false,
             .summary = if (!app.service_manager.status().installed) "would install the service manager" else "service manager already installed",
         },
+        .activate_tunnel => .{
+            .action = action,
+            .would_change = !services.tunnel_runtime.active,
+            .requires_restart = false,
+            .summary = if (!services.tunnel_runtime.active) "would activate remote tunnel with default mock endpoint" else "remote tunnel already active",
+        },
+        .deactivate_tunnel => .{
+            .action = action,
+            .would_change = services.tunnel_runtime.active,
+            .requires_restart = false,
+            .summary = if (services.tunnel_runtime.active) "would deactivate remote tunnel" else "remote tunnel already inactive",
+        },
     };
 }
 
@@ -71,6 +85,17 @@ pub fn apply(ctx: *const framework.CommandContext, services: *services_model.Com
         .install_service => blk: {
             const changed = app.service_manager.install();
             break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"install_service\",\"applied\":true,\"changed\":{s},\"installed\":{s}}}", .{ if (changed) "true" else "false", if (app.service_manager.status().installed) "true" else "false" });
+        },
+        .activate_tunnel => blk: {
+            services.tunnel_runtime.activate(.custom, "mock://tunnel/healthy") catch |err| {
+                try services.tunnel_runtime.noteActivationFailure("mock://tunnel/healthy", err);
+                break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"activate_tunnel\",\"applied\":false,\"errorCode\":\"{s}\"}}", .{@errorName(err)});
+            };
+            break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"activate_tunnel\",\"applied\":true,\"active\":true,\"endpoint\":\"{s}\"}}", .{services.tunnel_runtime.endpoint});
+        },
+        .deactivate_tunnel => blk: {
+            services.tunnel_runtime.deactivate();
+            break :blk std.fmt.allocPrint(ctx.allocator, "{{\"action\":\"deactivate_tunnel\",\"applied\":true,\"active\":false}}", .{});
         },
     };
 }
