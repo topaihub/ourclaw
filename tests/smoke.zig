@@ -1029,6 +1029,31 @@ test "node describe exposes single node detail" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"approvedPairingCount\":1") != null);
 }
 
+test "devices list aggregates pairing node and peripheral state" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.pairing_registry.create("telegram", "user_a", "123456");
+    _ = app.pairing_registry.approve("pair_1");
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_devices_list",
+        .method = "devices.list",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"approved\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nodes\":{") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"peripherals\":{") != null);
+}
+
 test "diagnostics commands return runtime summary and doctor checks" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

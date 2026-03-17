@@ -263,6 +263,7 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/device/pair/list")) return "device.pair.list";
     if (std.mem.eql(u8, route, "/v1/device/pair/approve")) return "device.pair.approve";
     if (std.mem.eql(u8, route, "/v1/device/pair/reject")) return "device.pair.reject";
+    if (std.mem.eql(u8, route, "/v1/devices/list")) return "devices.list";
     if (std.mem.eql(u8, route, "/v1/node/list")) return "node.list";
     if (std.mem.eql(u8, route, "/v1/node/describe")) return "node.describe";
     if (std.mem.eql(u8, route, "/v1/metrics/summary")) return "metrics.summary";
