@@ -489,6 +489,17 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "device.unpair")) {
+        if (args.len < 2) return error.MissingPairingId;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_device_unpair", .method = "device.unpair", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "device.token.rotate") or std.mem.eql(u8, args[0], "device.token.revoke")) {
         if (args.len < 2) return error.MissingPairingId;
         const params = try allocator.alloc(framework.ValidationField, 1);

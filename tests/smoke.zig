@@ -1133,19 +1133,20 @@ test "device pair control-plane commands manage pending requests" {
     try std.testing.expect(rotated.ok);
     try std.testing.expect(std.mem.indexOf(u8, rotated.result.?.success_json, "\"token\":\"devtok_") != null);
 
-    const revoked = try dispatcher.dispatch(.{
-        .request_id = "req_device_token_revoke",
-        .method = "device.token.revoke",
+    const unpaired = try dispatcher.dispatch(.{
+        .request_id = "req_device_unpair",
+        .method = "device.unpair",
         .params = rotate_params[0..],
         .source = .@"test",
         .authority = .admin,
     }, false);
-    defer switch (revoked.result.?) {
+    defer switch (unpaired.result.?) {
         .success_json => |json| std.testing.allocator.free(json),
         .task_accepted => {},
     };
-    try std.testing.expect(revoked.ok);
-    try std.testing.expect(std.mem.indexOf(u8, revoked.result.?.success_json, "\"token\":null") != null);
+    try std.testing.expect(unpaired.ok);
+    try std.testing.expect(std.mem.indexOf(u8, unpaired.result.?.success_json, "\"state\":\"rejected\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unpaired.result.?.success_json, "\"token\":null") != null);
 }
 
 test "node list exposes runtime node surface" {
