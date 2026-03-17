@@ -1,5 +1,12 @@
 # ourclaw 面向大模型的任务拆分
 
+> 归档说明（2026-03-17）：本文档保留为历史的大模型任务拆分材料，但不再作为 live checklist 或默认续做入口。当前主线请优先使用：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+> - `ourclaw/docs/planning/session-resume.md`
+
 本文档把 `ourclaw/docs/architecture/overall-design.md`、`ourclaw/docs/architecture/logging.md`、`ourclaw/docs/architecture/validation.md`、`ourclaw/docs/architecture/runtime-pipeline.md` 与 `ourclaw/docs/planning/implementation-epics.md` 转成更适合交给大模型逐步执行的任务清单。
 
 目标不是一次性把所有代码都生成完，而是把工作拆成边界清晰、依赖明确、回归容易的小任务。

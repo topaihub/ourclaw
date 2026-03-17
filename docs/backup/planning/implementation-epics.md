@@ -1,5 +1,12 @@
 # ourclaw 实施 Epic 拆分
 
+> 归档说明（2026-03-17）：本文档保留为历史 Epic 拆分参考，但不再作为当前主线任务入口。当前继续推进 `ourclaw` 时，请优先使用：
+>
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/requirements.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/design.md`
+> - `ourclaw/docs/specs/reference-aligned-ourclaw/tasks.md`
+> - `ourclaw/docs/planning/session-resume.md`
+
 本文档用于把总体设计转成后续可继续细化的实施阶段。
 
 > 说明：工作区当前已拆为 `framework/`、`ourclaw/`、`ourclaw-manager/` 三条主线；其中错误模型、响应封装、日志、校验等横切基础能力优先落在共享 `framework/src/*`，`ourclaw/` 主要承载业务域与接口层。
