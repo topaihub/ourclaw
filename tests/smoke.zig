@@ -1093,6 +1093,21 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, remote_status.result.?.success_json, "\"nextAction\":\"activate_tunnel\"") != null);
 
+    const remote_enable = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_remote_enable",
+        .method = "gateway.remote.enable",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (remote_enable.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(remote_enable.ok);
+    try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"enabled\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, remote_enable.result.?.success_json, "\"preferredUrl\":\"mock://tunnel/healthy?token=") != null);
+
     const tunnel_params = [_]framework.ValidationField{
         .{ .key = "kind", .value = .{ .string = "custom" } },
         .{ .key = "endpoint", .value = .{ .string = "mock://tunnel/healthy" } },
