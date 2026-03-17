@@ -162,10 +162,14 @@
     - 已完成第三子步：channel snapshot 已补 `healthState`，并进入 `channels.status` 与 smoke
     - 完成判断：channel 当前已不再只是 plain registry，而具备对外可见的 routing 与 health 状态面
 
-- [ ] **F2. 深化 provider capability / model surface**
+- [x] **F2. 深化 provider capability / model surface**
   - 主线落点：`ourclaw/src/providers/*`
   - 参考：`nullclaw` provider contract、openclaw models/config
   - 完成定义：provider 能力、模型、健康与控制面输出更完整
+  - 当前进展（2026-03-17）：
+    - 已完成第一子步：新增 `providers.status` 命令，对外暴露 provider capability / model / health surface
+    - 已完成第二子步：`providers.status` 已补 `refreshCount / lastRefreshReason`，把 provider refresh control 也纳入对外状态面
+    - 完成判断：provider 当前已具备 capability、model、health、control 四类对外输出，F2 可视为完成
 
 ## 2. Docs Governance Tasks
 

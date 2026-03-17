@@ -32,6 +32,10 @@
 
 ## 最近结论
 
+- **F2 已完成（2026-03-17）**：
+  - `providers.status` 已暴露 provider capability / model / health / refresh control surface
+  - 验证：`ourclaw` 执行 `zig build test --summary all -j1` 通过（187/187）
+
 - **F1 已完成（2026-03-17）**：
   - `channels.root` 已补 routing group 与 health state
   - `channels.status` 已成为 channel control-plane 的只读状态面
