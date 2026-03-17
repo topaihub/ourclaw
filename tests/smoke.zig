@@ -922,6 +922,62 @@ test "providers status exposes capability surface" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"healthMessage\":") != null);
 }
 
+test "device pair control-plane commands manage pending requests" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.pairing_registry.create("telegram", "user_a", "123456");
+    try app.pairing_registry.create("discord", "user_b", "654321");
+
+    var dispatcher = app.makeDispatcher();
+    const listed = try dispatcher.dispatch(.{
+        .request_id = "req_device_pair_list",
+        .method = "device.pair.list",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (listed.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(listed.ok);
+    try std.testing.expect(std.mem.indexOf(u8, listed.result.?.success_json, "\"pendingCount\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, listed.result.?.success_json, "\"requirePairing\":true") != null);
+
+    const approve_params = [_]framework.ValidationField{.{ .key = "id", .value = .{ .string = "pair_1" } }};
+    const approved = try dispatcher.dispatch(.{
+        .request_id = "req_device_pair_approve",
+        .method = "device.pair.approve",
+        .params = approve_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (approved.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(approved.ok);
+    try std.testing.expect(std.mem.indexOf(u8, approved.result.?.success_json, "\"state\":\"approved\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, approved.result.?.success_json, "\"pendingCount\":1") != null);
+
+    const reject_params = [_]framework.ValidationField{.{ .key = "id", .value = .{ .string = "pair_2" } }};
+    const rejected = try dispatcher.dispatch(.{
+        .request_id = "req_device_pair_reject",
+        .method = "device.pair.reject",
+        .params = reject_params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (rejected.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(rejected.ok);
+    try std.testing.expect(std.mem.indexOf(u8, rejected.result.?.success_json, "\"state\":\"rejected\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rejected.result.?.success_json, "\"pendingCount\":0") != null);
+}
+
 test "diagnostics commands return runtime summary and doctor checks" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

@@ -260,6 +260,9 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/config/compat-import")) return "config.compat_import";
     if (std.mem.eql(u8, route, "/v1/diagnostics/summary")) return "diagnostics.summary";
     if (std.mem.eql(u8, route, "/v1/diagnostics/doctor")) return "diagnostics.doctor";
+    if (std.mem.eql(u8, route, "/v1/device/pair/list")) return "device.pair.list";
+    if (std.mem.eql(u8, route, "/v1/device/pair/approve")) return "device.pair.approve";
+    if (std.mem.eql(u8, route, "/v1/device/pair/reject")) return "device.pair.reject";
     if (std.mem.eql(u8, route, "/v1/metrics/summary")) return "metrics.summary";
     if (std.mem.eql(u8, route, "/v1/observer/recent")) return "observer.recent";
     if (std.mem.eql(u8, route, "/v1/events/subscribe")) return "events.subscribe";

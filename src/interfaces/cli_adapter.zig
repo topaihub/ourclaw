@@ -425,6 +425,37 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "device.pair.list")) {
+        const params = try allocator.alloc(framework.ValidationField, 0);
+        return .{
+            .request = .{ .request_id = "cli_req_device_pair_list", .method = "device.pair.list", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "device.pair.approve")) {
+        if (args.len < 2) return error.MissingPairingId;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_device_pair_approve", .method = "device.pair.approve", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
+    if (std.mem.eql(u8, args[0], "device.pair.reject")) {
+        if (args.len < 2) return error.MissingPairingId;
+        const params = try allocator.alloc(framework.ValidationField, 1);
+        params[0] = .{ .key = "id", .value = .{ .string = try allocator.dupe(u8, args[1]) } };
+        return .{
+            .request = .{ .request_id = "cli_req_device_pair_reject", .method = "device.pair.reject", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "metrics.summary") or std.mem.eql(u8, args[0], "gateway.status") or std.mem.eql(u8, args[0], "service.status") or std.mem.eql(u8, args[0], "skills.list") or std.mem.eql(u8, args[0], "cron.list") or std.mem.eql(u8, args[0], "heartbeat.status") or std.mem.eql(u8, args[0], "tunnel.status") or std.mem.eql(u8, args[0], "mcp.list") or std.mem.eql(u8, args[0], "hardware.list") or std.mem.eql(u8, args[0], "voice.status")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{
