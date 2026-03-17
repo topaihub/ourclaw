@@ -20,6 +20,7 @@ pub const diagnostics_remediate_apply = @import("diagnostics_remediate_apply.zig
 pub const onboard_summary = @import("onboard_summary.zig");
 pub const onboard_apply_defaults = @import("onboard_apply_defaults.zig");
 pub const device_pair_list = @import("device_pair_list.zig");
+pub const device_pair_request = @import("device_pair_request.zig");
 pub const device_pair_approve = @import("device_pair_approve.zig");
 pub const device_pair_reject = @import("device_pair_reject.zig");
 pub const device_unpair = @import("device_unpair.zig");
@@ -100,6 +101,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(onboard_summary.definition(command_services));
     try registry.register(onboard_apply_defaults.definition(command_services));
     try registry.register(device_pair_list.definition(command_services));
+    try registry.register(device_pair_request.definition(command_services));
     try registry.register(device_pair_approve.definition(command_services));
     try registry.register(device_pair_reject.definition(command_services));
     try registry.register(device_unpair.definition(command_services));

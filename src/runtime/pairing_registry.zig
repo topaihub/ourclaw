@@ -40,6 +40,11 @@ pub const PairingDecision = struct {
     token: ?[]u8 = null,
 };
 
+pub const PairingCreated = struct {
+    id: []const u8,
+    code: []const u8,
+};
+
 pub const PairingRegistry = struct {
     allocator: std.mem.Allocator,
     requests: std.ArrayListUnmanaged(PairingRequest) = .empty,
@@ -56,17 +61,23 @@ pub const PairingRegistry = struct {
         self.requests.deinit(self.allocator);
     }
 
-    pub fn create(self: *Self, channel: []const u8, requester: []const u8, code: []const u8) anyerror!void {
+    pub fn create(self: *Self, channel: []const u8, requester: []const u8, code: ?[]const u8) anyerror!PairingCreated {
         const id = try std.fmt.allocPrint(self.allocator, "pair_{d}", .{self.next_id});
         errdefer self.allocator.free(id);
+        const resolved_code = if (code) |value|
+            try self.allocator.dupe(u8, value)
+        else
+            try generatePairingCode(self.allocator);
+        errdefer self.allocator.free(resolved_code);
         self.next_id += 1;
         try self.requests.append(self.allocator, .{
             .id = id,
             .channel = try self.allocator.dupe(u8, channel),
             .requester = try self.allocator.dupe(u8, requester),
-            .code = try self.allocator.dupe(u8, code),
+            .code = resolved_code,
             .requested_at_ms = std.time.milliTimestamp(),
         });
+        return .{ .id = id, .code = resolved_code };
     }
 
     pub fn count(self: *const Self) usize {
@@ -148,15 +159,22 @@ pub const PairingRegistry = struct {
         request.token = try std.fmt.allocPrint(allocator, "devtok_{d}", .{serial});
         request.token_issued_at_ms = std.time.milliTimestamp();
     }
+
+    fn generatePairingCode(allocator: std.mem.Allocator) anyerror![]u8 {
+        const value = std.crypto.random.intRangeLessThan(u32, 0, 1_000_000);
+        return std.fmt.allocPrint(allocator, "{d:0>6}", .{value});
+    }
 };
 
 test "pairing registry creates and approves requests" {
     var registry = PairingRegistry.init(std.testing.allocator);
     defer registry.deinit();
 
-    try registry.create("telegram", "user_a", "123456");
+    const created = try registry.create("telegram", "user_a", "123456");
     try std.testing.expectEqual(@as(usize, 1), registry.count());
     try std.testing.expectEqual(@as(usize, 1), registry.pendingCount());
+    try std.testing.expectEqualStrings("pair_1", created.id);
+    try std.testing.expectEqualStrings("123456", created.code);
     const decision = registry.approve("pair_1");
     try std.testing.expect(decision.changed);
     try std.testing.expectEqual(PairingState.approved, decision.state);
