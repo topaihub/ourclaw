@@ -19,21 +19,25 @@ pub const PairingRequest = struct {
     channel: []u8,
     requester: []u8,
     code: []u8,
+    token: ?[]u8 = null,
     state: PairingState = .pending,
     requested_at_ms: i64,
     decided_at_ms: ?i64 = null,
+    token_issued_at_ms: ?i64 = null,
 
     pub fn deinit(self: *PairingRequest, allocator: std.mem.Allocator) void {
         allocator.free(self.id);
         allocator.free(self.channel);
         allocator.free(self.requester);
         allocator.free(self.code);
+        if (self.token) |value| allocator.free(value);
     }
 };
 
 pub const PairingDecision = struct {
     changed: bool,
     state: PairingState,
+    token: ?[]u8 = null,
 };
 
 pub const PairingRegistry = struct {
@@ -89,15 +93,47 @@ pub const PairingRegistry = struct {
         return self.transition(id, .rejected);
     }
 
+    pub fn rotateToken(self: *Self, id: []const u8) PairingDecision {
+        for (self.requests.items) |*request| {
+            if (!std.mem.eql(u8, request.id, id)) continue;
+            if (request.state != .approved) return .{ .changed = false, .state = request.state, .token = null };
+            issueToken(self.allocator, request, self.next_id) catch return .{ .changed = false, .state = request.state, .token = null };
+            self.next_id += 1;
+            return .{ .changed = true, .state = request.state, .token = request.token };
+        }
+        return .{ .changed = false, .state = .pending, .token = null };
+    }
+
+    pub fn revokeToken(self: *Self, id: []const u8) PairingDecision {
+        for (self.requests.items) |*request| {
+            if (!std.mem.eql(u8, request.id, id)) continue;
+            if (request.token) |value| self.allocator.free(value);
+            request.token = null;
+            request.token_issued_at_ms = null;
+            return .{ .changed = true, .state = request.state, .token = null };
+        }
+        return .{ .changed = false, .state = .pending, .token = null };
+    }
+
     fn transition(self: *Self, id: []const u8, next: PairingState) PairingDecision {
         for (self.requests.items) |*request| {
             if (!std.mem.eql(u8, request.id, id)) continue;
-            if (request.state == next) return .{ .changed = false, .state = request.state };
+            if (request.state == next) return .{ .changed = false, .state = request.state, .token = request.token };
             request.state = next;
             request.decided_at_ms = std.time.milliTimestamp();
-            return .{ .changed = true, .state = request.state };
+            if (next == .approved) {
+                issueToken(self.allocator, request, self.next_id) catch return .{ .changed = false, .state = request.state, .token = null };
+                self.next_id += 1;
+            }
+            return .{ .changed = true, .state = request.state, .token = request.token };
         }
-        return .{ .changed = false, .state = .pending };
+        return .{ .changed = false, .state = .pending, .token = null };
+    }
+
+    fn issueToken(allocator: std.mem.Allocator, request: *PairingRequest, serial: usize) anyerror!void {
+        if (request.token) |value| allocator.free(value);
+        request.token = try std.fmt.allocPrint(allocator, "devtok_{d}", .{serial});
+        request.token_issued_at_ms = std.time.milliTimestamp();
     }
 };
 
@@ -111,5 +147,6 @@ test "pairing registry creates and approves requests" {
     const decision = registry.approve("pair_1");
     try std.testing.expect(decision.changed);
     try std.testing.expectEqual(PairingState.approved, decision.state);
+    try std.testing.expect(decision.token != null);
     try std.testing.expectEqual(@as(usize, 0), registry.pendingCount());
 }

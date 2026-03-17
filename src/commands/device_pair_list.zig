@@ -24,7 +24,7 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try writer.print("{{\"count\":{d},\"pendingCount\":{d},\"requirePairing\":{s},\"items\":[", .{ app.pairing_registry.count(), app.pairing_registry.pendingCount(), if (app.effective_gateway_require_pairing) "true" else "false" });
     for (app.pairing_registry.items(), 0..) |request, index| {
         if (index > 0) try writer.writeByte(',');
-        try writer.print("{{\"id\":\"{s}\",\"channel\":\"{s}\",\"requester\":\"{s}\",\"code\":\"{s}\",\"state\":\"{s}\",\"requestedAtMs\":{d},\"decidedAtMs\":", .{ request.id, request.channel, request.requester, request.code, request.state.asText(), request.requested_at_ms });
+        try writer.print("{{\"id\":\"{s}\",\"channel\":\"{s}\",\"requester\":\"{s}\",\"code\":\"{s}\",\"state\":\"{s}\",\"hasToken\":{s},\"requestedAtMs\":{d},\"decidedAtMs\":", .{ request.id, request.channel, request.requester, request.code, request.state.asText(), if (request.token != null) "true" else "false", request.requested_at_ms });
         if (request.decided_at_ms) |value| {
             try writer.print("{d}", .{value});
         } else {
