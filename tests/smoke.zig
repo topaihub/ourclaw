@@ -856,6 +856,32 @@ test "cli channel records real request semantics" {
     try std.testing.expectEqualStrings("sess_cli_channel", snapshot.last_session_id.?);
 }
 
+test "channels status exposes routing groups" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    try app.channel_registry.recordCliRequest("agent.run", "sess_channels_cli");
+    try app.channel_registry.recordBridgeRequest("config.get", null);
+    try app.channel_registry.recordHttpStream("/v1/agent/stream/sse", "sess_channels_http");
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_channels_status",
+        .method = "channels.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"count\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"lastRouteGroup\":\"agent\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"lastRouteGroup\":\"config\"") != null);
+}
+
 test "diagnostics commands return runtime summary and doctor checks" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

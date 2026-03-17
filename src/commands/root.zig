@@ -57,6 +57,7 @@ pub const service_restart = @import("service_restart.zig");
 pub const logs_recent = @import("logs_recent.zig");
 pub const task_get = @import("task_get.zig");
 pub const task_by_request = @import("task_by_request.zig");
+pub const channels_status = @import("channels_status.zig");
 
 pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: *services.CommandServices) anyerror!void {
     try registry.register(app_meta.definition(command_services));
@@ -112,6 +113,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(logs_recent.definition(command_services));
     try registry.register(task_get.definition(command_services));
     try registry.register(task_by_request.definition(command_services));
+    try registry.register(channels_status.definition(command_services));
 }
 
 test "commands exports are stable" {
