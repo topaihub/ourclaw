@@ -425,6 +425,21 @@ pub fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) anyerro
         };
     }
 
+    if (std.mem.eql(u8, args[0], "onboard.apply-defaults")) {
+        var install_service = false;
+        if (args.len >= 2 and std.mem.eql(u8, args[1], "--install-service")) install_service = true;
+        const count: usize = if (install_service) 1 else 0;
+        const params = try allocator.alloc(framework.ValidationField, count);
+        if (install_service) {
+            params[0] = .{ .key = "install_service", .value = .{ .boolean = true } };
+        }
+        return .{
+            .request = .{ .request_id = "cli_req_onboard_apply_defaults", .method = "onboard.apply_defaults", .params = params, .source = .cli, .authority = .admin },
+            .params = params,
+            .allocator = allocator,
+        };
+    }
+
     if (std.mem.eql(u8, args[0], "diagnostics.doctor")) {
         const params = try allocator.alloc(framework.ValidationField, 0);
         return .{

@@ -944,6 +944,32 @@ test "onboard summary exposes readiness and next step" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextStep\":") != null);
 }
 
+test "onboard apply defaults updates runtime and service state" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+    app.effective_gateway_require_pairing = false;
+    app.effective_runtime_max_tool_rounds = 2;
+
+    var dispatcher = app.makeDispatcher();
+    const params = [_]framework.ValidationField{.{ .key = "install_service", .value = .{ .boolean = true } }};
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_onboard_apply_defaults",
+        .method = "onboard.apply_defaults",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"applied\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"serviceChanged\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"gatewayRequirePairing\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"runtimeMaxToolRounds\":4") != null);
+}
+
 test "device pair control-plane commands manage pending requests" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();
