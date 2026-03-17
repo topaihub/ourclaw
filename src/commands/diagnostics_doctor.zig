@@ -21,7 +21,14 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const tunnel = services.tunnel_runtime;
     const shared_token_configured = services.secret_store.get("gateway:shared_token") != null;
 
-    var issues: std.ArrayListUnmanaged([]const u8) = .empty;
+    const Issue = struct {
+        category: []const u8,
+        code: []const u8,
+        message: []const u8,
+        suggested_action: ?[]const u8 = null,
+    };
+
+    var issues: std.ArrayListUnmanaged(Issue) = .empty;
     defer issues.deinit(ctx.allocator);
 
     var healthy_provider_count: usize = 0;
@@ -49,26 +56,26 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
         if (device.health_state != .ready) broken_peripheral_count += 1;
     }
 
-    if (services.secret_store.count() == 0) try issues.append(ctx.allocator, "no secrets configured");
-    if (services.provider_registry.count() == 0) try issues.append(ctx.allocator, "provider registry is empty");
-    if (services.channel_registry.count() == 0) try issues.append(ctx.allocator, "channel registry is empty");
-    if (services.tool_registry.count() == 0) try issues.append(ctx.allocator, "tool registry is empty");
-    if (services.framework_context.command_registry.count() == 0) try issues.append(ctx.allocator, "command registry is empty");
-    if (!app.effective_gateway_require_pairing) try issues.append(ctx.allocator, "gateway pairing protection is disabled");
-    if (gateway_status.running and !gateway_status.listener_ready) try issues.append(ctx.allocator, "gateway listener is not ready");
-    if (gateway_status.running and !gateway_status.handler_attached) try issues.append(ctx.allocator, "gateway handler is not attached");
-    if (service_status.restart_budget_exhausted) try issues.append(ctx.allocator, "service restart budget exhausted");
-    if (service_status.stale_process_detected) try issues.append(ctx.allocator, "stale service process detected");
-    if (shared_token_configured and !tunnel.active) try issues.append(ctx.allocator, "remote access token exists but tunnel is not active");
-    if (tunnel.active and tunnel.health_state != .ready) try issues.append(ctx.allocator, "remote tunnel is unhealthy");
-    if (unhealthy_provider_count > 0) try issues.append(ctx.allocator, "one or more providers are unhealthy");
-    if (broken_hardware_count > 0) try issues.append(ctx.allocator, "one or more hardware nodes are unhealthy");
-    if (broken_peripheral_count > 0) try issues.append(ctx.allocator, "one or more peripherals are unhealthy");
+    if (services.secret_store.count() == 0) try issues.append(ctx.allocator, .{ .category = "secrets", .code = "NO_SECRETS", .message = "no secrets configured" });
+    if (services.provider_registry.count() == 0) try issues.append(ctx.allocator, .{ .category = "providers", .code = "PROVIDER_REGISTRY_EMPTY", .message = "provider registry is empty" });
+    if (services.channel_registry.count() == 0) try issues.append(ctx.allocator, .{ .category = "channels", .code = "CHANNEL_REGISTRY_EMPTY", .message = "channel registry is empty" });
+    if (services.tool_registry.count() == 0) try issues.append(ctx.allocator, .{ .category = "tools", .code = "TOOL_REGISTRY_EMPTY", .message = "tool registry is empty" });
+    if (services.framework_context.command_registry.count() == 0) try issues.append(ctx.allocator, .{ .category = "commands", .code = "COMMAND_REGISTRY_EMPTY", .message = "command registry is empty" });
+    if (!app.effective_gateway_require_pairing) try issues.append(ctx.allocator, .{ .category = "gateway", .code = "PAIRING_DISABLED", .message = "gateway pairing protection is disabled", .suggested_action = "enable_pairing" });
+    if (gateway_status.running and !gateway_status.listener_ready) try issues.append(ctx.allocator, .{ .category = "gateway", .code = "LISTENER_NOT_READY", .message = "gateway listener is not ready" });
+    if (gateway_status.running and !gateway_status.handler_attached) try issues.append(ctx.allocator, .{ .category = "gateway", .code = "HANDLER_NOT_ATTACHED", .message = "gateway handler is not attached" });
+    if (service_status.restart_budget_exhausted) try issues.append(ctx.allocator, .{ .category = "service", .code = "RESTART_BUDGET_EXHAUSTED", .message = "service restart budget exhausted" });
+    if (service_status.stale_process_detected) try issues.append(ctx.allocator, .{ .category = "service", .code = "STALE_PROCESS", .message = "stale service process detected" });
+    if (shared_token_configured and !tunnel.active) try issues.append(ctx.allocator, .{ .category = "remote", .code = "TOKEN_WITHOUT_TUNNEL", .message = "remote access token exists but tunnel is not active", .suggested_action = "activate_tunnel" });
+    if (tunnel.active and tunnel.health_state != .ready) try issues.append(ctx.allocator, .{ .category = "remote", .code = "TUNNEL_UNHEALTHY", .message = "remote tunnel is unhealthy", .suggested_action = "deactivate_tunnel" });
+    if (unhealthy_provider_count > 0) try issues.append(ctx.allocator, .{ .category = "providers", .code = "UNHEALTHY_PROVIDER", .message = "one or more providers are unhealthy" });
+    if (broken_hardware_count > 0) try issues.append(ctx.allocator, .{ .category = "hardware", .code = "UNHEALTHY_NODE", .message = "one or more hardware nodes are unhealthy" });
+    if (broken_peripheral_count > 0) try issues.append(ctx.allocator, .{ .category = "peripherals", .code = "UNHEALTHY_PERIPHERAL", .message = "one or more peripherals are unhealthy" });
 
     var maybe_openai_health = services.provider_registry.health(ctx.allocator, "openai") catch null;
     defer if (maybe_openai_health) |*health| health.deinit(ctx.allocator);
     if (maybe_openai_health == null or !maybe_openai_health.?.healthy) {
-        try issues.append(ctx.allocator, "openai provider is not healthy");
+        try issues.append(ctx.allocator, .{ .category = "providers", .code = "OPENAI_UNHEALTHY", .message = "openai provider is not healthy" });
     }
 
     var buf: std.ArrayListUnmanaged(u8) = .empty;
@@ -81,7 +88,23 @@ fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     try writer.writeAll(",\"issues\":[");
     for (issues.items, 0..) |issue, index| {
         if (index > 0) try writer.writeByte(',');
-        try writer.print("\"{s}\"", .{issue});
+        try writer.print("{{\"category\":\"{s}\",\"code\":\"{s}\",\"message\":\"{s}\",\"suggestedAction\":", .{ issue.category, issue.code, issue.message });
+        if (issue.suggested_action) |action| {
+            try writer.print("\"{s}\"", .{action});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeByte('}');
+    }
+    try writer.writeByte(']');
+    try writer.writeAll(",\"suggestedActions\":[");
+    var emitted_action = false;
+    for (issues.items) |issue| {
+        if (issue.suggested_action) |action| {
+            if (emitted_action) try writer.writeByte(',');
+            emitted_action = true;
+            try writer.print("\"{s}\"", .{action});
+        }
     }
     try writer.writeByte(']');
     try writer.writeAll(",\"checks\":{");
