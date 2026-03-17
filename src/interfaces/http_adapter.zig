@@ -287,6 +287,7 @@ fn routeToMethod(route: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, route, "/v1/events/poll")) return "events.poll";
     if (std.mem.eql(u8, route, "/v1/gateway/status")) return "gateway.status";
     if (std.mem.eql(u8, route, "/v1/gateway/auth/status")) return "gateway.auth.status";
+    if (std.mem.eql(u8, route, "/v1/gateway/token/generate")) return "gateway.token.generate";
     if (std.mem.eql(u8, route, "/v1/gateway/start")) return "gateway.start";
     if (std.mem.eql(u8, route, "/v1/gateway/stop")) return "gateway.stop";
     if (std.mem.eql(u8, route, "/v1/gateway/reload")) return "gateway.reload";

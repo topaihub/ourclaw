@@ -1014,8 +1014,37 @@ test "gateway auth status exposes access summary" {
     try std.testing.expect(envelope.ok);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"requirePairing\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"pendingPairings\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"sharedTokenSupported\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"sharedTokenSupported\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"nextAction\":\"approve_pairing_requests\"") != null);
+
+    const token = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_token_generate",
+        .method = "gateway.token.generate",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (token.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(token.ok);
+    try std.testing.expect(std.mem.indexOf(u8, token.result.?.success_json, "\"generated\":true") != null);
+    try std.testing.expect(app.secret_store.get("gateway:shared_token") != null);
+
+    const envelope_after_token = try dispatcher.dispatch(.{
+        .request_id = "req_gateway_auth_status_after_token",
+        .method = "gateway.auth.status",
+        .params = &.{},
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer switch (envelope_after_token.result.?) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+    try std.testing.expect(envelope_after_token.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope_after_token.result.?.success_json, "\"sharedTokenConfigured\":true") != null);
 }
 
 test "device pair control-plane commands manage pending requests" {
