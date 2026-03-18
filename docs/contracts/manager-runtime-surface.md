@@ -22,22 +22,24 @@
 
 1. `gateway.status`
 2. `gateway.auth.status`
-3. `gateway.remote.status`
-4. `gateway.remote.policy.status`
-5. `service.status`
-6. `heartbeat.status`
-7. `status.all`
-8. `session.get`
-9. `diagnostics.summary`
-10. `diagnostics.remediate_preview` / `diagnostics.remediate_apply`
-11. `metrics.summary`
-12. `logs.recent`
-13. `events.poll`
-14. `devices.list`
-15. `onboard.summary`
-16. `node.list` / `node.describe` / `node.invoke`
-17. `task.get` / `task.by_request`
-18. `observer.recent`
+3. `gateway.token.status`
+4. `gateway.password.status`
+5. `gateway.remote.status`
+6. `gateway.remote.policy.status`
+7. `service.status`
+8. `heartbeat.status`
+9. `status.all`
+10. `session.get`
+11. `diagnostics.summary`
+12. `diagnostics.remediate_preview` / `diagnostics.remediate_apply`
+13. `metrics.summary`
+14. `logs.recent`
+15. `events.poll`
+16. `devices.list`
+17. `onboard.summary`
+18. `node.list` / `node.describe` / `node.invoke`
+19. `task.get` / `task.by_request`
+20. `observer.recent`
 
 ## 4. `gateway.status`
 
@@ -120,13 +122,57 @@
 - `localAccessUrl`
 - `nextAction`
 
-## 5.3 `gateway.remote.policy.status`
+## 5.3 `gateway.token.status`
+
+### stable
+
+- `configured`
+- `length`
+
+### provisional
+
+- `gateway.token.generate`
+- `gateway.token.rotate`
+- `gateway.token.revoke`
+
+## 5.4 `gateway.password.status`
+
+### stable
+
+- `configured`
+- `length`
+
+### provisional
+
+- `gateway.password.set`
+- `gateway.password.clear`
+
+## 5.5 `gateway.remote.status`
+
+### stable
+
+- `tunnelActive`
+- `tunnelKind`
+- `tunnelEndpoint`
+- `tunnelHealthState`
+- `tunnelHealthMessage`
+- `sharedTokenConfigured`
+- `localAccessUrl`
+- `nextAction`
+
+## 5.6 `gateway.remote.policy.status`
 
 ### stable
 
 - `remoteEnabled`
 - `defaultEndpoint`
 - `revokeTokenOnDisable`
+
+### provisional
+
+- `gateway.remote.enable`
+- `gateway.remote.disable`
+- `gateway.remote.policy.set`
 
 ## 6. `heartbeat.status`
 
@@ -362,6 +408,8 @@
 - runtime 命令面：
   - `ourclaw/src/commands/gateway_status.zig`
   - `ourclaw/src/commands/gateway_auth_status.zig`
+  - `ourclaw/src/commands/gateway_token_status.zig`
+  - `ourclaw/src/commands/gateway_password_status.zig`
   - `ourclaw/src/commands/gateway_remote_status.zig`
   - `ourclaw/src/commands/gateway_remote_policy_status.zig`
   - `ourclaw/src/commands/service_status.zig`
@@ -384,16 +432,18 @@
   - `ourclaw-manager/src/runtime_client/events_client.zig`
   - `ourclaw-manager/src/runtime_client/onboard_client.zig`
   - `ourclaw-manager/src/runtime_client/devices_client.zig`
+  - `ourclaw-manager/src/runtime_client/node_client.zig`
   - `ourclaw-manager/src/view_models/status_view_model.zig`
   - `ourclaw-manager/src/view_models/diagnostics_view_model.zig`
   - `ourclaw-manager/src/view_models/logs_view_model.zig`
   - `ourclaw-manager/src/view_models/onboard_view_model.zig`
   - `ourclaw-manager/src/view_models/devices_view_model.zig`
   - `ourclaw-manager/src/view_models/nodes_view_model.zig`
+  - `ourclaw-manager/src/view_models/gateway_control_view_model.zig`
 
 ## 15. 当前结论
 
-当前已经把 **status / session / diagnostics / metrics / logs / events / task / observer / devices / onboarding / gateway auth / gateway remote / nodes** 这些 manager 常用面推进到“文档稳定矩阵 + runtime_client typed reader + 部分 view model typed 消费”三层闭环。
+当前已经把 **status / session / diagnostics / metrics / logs / events / task / observer / devices / onboarding / gateway auth / gateway token / gateway password / gateway remote / nodes** 这些 manager 常用面推进到“文档稳定矩阵 + runtime_client typed reader + 部分 view model/service typed 消费”三层闭环。
 
 仍需注意：
 

@@ -37,6 +37,7 @@
   - 已补 `gateway.auth.status`、`gateway.remote.status/policy.status` 的 status view model typed consumption
   - 已补 `devices.list`、`onboard.summary` typed consumption
   - 已补 `NodeClient` 与 `NodesService / NodesViewModel`
+  - 已补 `GatewayControlService / GatewayControlViewModel`，开始承接 gateway action workflow typed 消费
   - `ourclaw-manager` 当前全量测试通过（26/26）
 
 - **Docs Governance 已完成（2026-03-17）**：
