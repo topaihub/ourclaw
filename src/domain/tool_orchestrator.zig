@@ -13,6 +13,7 @@ pub const ToolOrchestrator = struct {
     allocator: std.mem.Allocator,
     tool_registry: *ToolRegistry,
     stream_output: *StreamOutput,
+    logger: ?*framework.Logger = null,
 
     const Self = @This();
 
@@ -35,6 +36,10 @@ pub const ToolOrchestrator = struct {
             .tool_registry = tool_registry,
             .stream_output = output,
         };
+    }
+
+    pub fn setLogger(self: *Self, logger: *framework.Logger) void {
+        self.logger = logger;
     }
 
     pub fn invoke(self: *Self, session_id: []const u8, tool_id: []const u8, input_json: []const u8, authority: Authority) anyerror![]u8 {
@@ -64,7 +69,35 @@ pub const ToolOrchestrator = struct {
     }
 
     pub fn invokeSingle(self: *Self, request: SingleInvokeRequest) anyerror![]u8 {
+        // 初始化方法追踪和摘要追踪
+        const method_name = try std.fmt.allocPrint(self.allocator, "Tool.{s}", .{request.tool_id});
+        defer self.allocator.free(method_name);
+
+        var method_trace: ?framework.observability.MethodTrace = null;
+        var summary_trace: ?framework.observability.SummaryTrace = null;
+        if (self.logger) |logger| {
+            method_trace = try framework.observability.MethodTrace.begin(
+                self.allocator,
+                logger,
+                method_name,
+                request.input_json,
+                1000, // 工具调用通常较快，设置 1 秒阈值
+            );
+            summary_trace = try framework.observability.SummaryTrace.begin(
+                self.allocator,
+                logger,
+                method_name,
+                1000,
+            );
+        }
+        defer {
+            if (method_trace) |*trace| trace.deinit();
+            if (summary_trace) |*trace| trace.deinit();
+        }
+
         const definition = self.tool_registry.find(request.tool_id) orelse {
+            if (method_trace) |*trace| trace.finishError("ToolNotFound", "TOOL_NOT_FOUND", false);
+            if (summary_trace) |*trace| trace.finishError(.business);
             const payload = try std.fmt.allocPrint(
                 self.allocator,
                 "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"errorCode\":\"TOOL_NOT_FOUND\"}}",
@@ -76,6 +109,8 @@ pub const ToolOrchestrator = struct {
         };
 
         if (!SecurityPolicy.canInvokeTool(request.authority, request.tool_id)) {
+            if (method_trace) |*trace| trace.finishError("PolicyDenied", "TOOL_POLICY_DENIED", false);
+            if (summary_trace) |*trace| trace.finishError(.auth);
             const denied_payload = try std.fmt.allocPrint(
                 self.allocator,
                 "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"errorCode\":\"TOOL_POLICY_DENIED\"}}",
@@ -93,6 +128,8 @@ pub const ToolOrchestrator = struct {
         }
 
         if (definition.risk_level == .high and !request.confirm_risk) {
+            if (method_trace) |*trace| trace.finishError("ToolRiskConfirmationRequired", "TOOL_RISK_CONFIRMATION_REQUIRED", false);
+            if (summary_trace) |*trace| trace.finishError(.validation);
             const denied_payload = try std.fmt.allocPrint(
                 self.allocator,
                 "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"errorCode\":\"TOOL_RISK_CONFIRMATION_REQUIRED\"}}",
@@ -106,6 +143,8 @@ pub const ToolOrchestrator = struct {
 
         if (request.remaining_budget) |budget| {
             if (budget.* == 0) {
+                if (method_trace) |*trace| trace.finishError("ToolBudgetExceeded", "TOOL_BUDGET_EXCEEDED", false);
+                if (summary_trace) |*trace| trace.finishError(.business);
                 const denied_payload = try std.fmt.allocPrint(
                     self.allocator,
                     "{{\"contract\":\"single_invocation\",\"toolId\":\"{s}\",\"requiredAuthority\":\"{s}\",\"riskLevel\":\"{s}\",\"errorCode\":\"TOOL_BUDGET_EXCEEDED\"}}",
@@ -134,6 +173,8 @@ pub const ToolOrchestrator = struct {
         try self.publishAudit(request, definition, "started");
 
         const result = self.tool_registry.invokeWithPolicy(self.allocator, request.tool_id, request.input_json, .{ .confirm_risk = request.confirm_risk, .cancel_requested = request.cancel_requested }) catch |err| {
+            if (method_trace) |*trace| trace.finishError(@errorName(err), null, false);
+            if (summary_trace) |*trace| trace.finishError(.system);
             const mapped = tools.ToolRegistry.mapError(err);
             const payload = try std.fmt.allocPrint(
                 self.allocator,
@@ -146,6 +187,11 @@ pub const ToolOrchestrator = struct {
             return err;
         };
         errdefer self.allocator.free(result);
+
+        // 截取结果摘要（最多 96 字符）
+        const result_summary = if (result.len <= 96) result else result[0..96];
+        if (method_trace) |*trace| trace.finishSuccess(result_summary, false);
+        if (summary_trace) |*trace| trace.finishSuccess();
 
         const finished_payload = try std.fmt.allocPrint(
             self.allocator,

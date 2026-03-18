@@ -94,6 +94,7 @@ pub const AgentRuntime = struct {
     session_store: *SessionStore,
     stream_output: *StreamOutput,
     tool_orchestrator: *ToolOrchestrator,
+    logger: ?*framework.Logger = null,
 
     const Self = @This();
     const ToolRoundSource = enum {
@@ -119,6 +120,10 @@ pub const AgentRuntime = struct {
         };
     }
 
+    pub fn setLogger(self: *Self, logger: *framework.Logger) void {
+        self.logger = logger;
+    }
+
     pub fn run(self: *Self, request: AgentRunRequest) anyerror!AgentRunResult {
         var stream_result = try self.runStream(request);
         defer stream_result.deinit(self.allocator);
@@ -141,13 +146,56 @@ pub const AgentRuntime = struct {
         const started_at = std.time.milliTimestamp();
         const event_start_index = self.session_store.countEvents(request.session_id);
 
+        // 准备追踪参数摘要
+        const params_summary = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"sessionId\":\"{s}\",\"providerId\":\"{s}\",\"model\":\"{s}\",\"maxToolRounds\":{d},\"providerRoundBudget\":{d}}}",
+            .{ request.session_id, request.provider_id, request.model orelse "default", request.max_tool_rounds, request.provider_round_budget },
+        );
+        defer self.allocator.free(params_summary);
+
+        // 初始化方法追踪和摘要追踪
+        var method_trace: ?framework.observability.MethodTrace = null;
+        var summary_trace: ?framework.observability.SummaryTrace = null;
+        if (self.logger) |logger| {
+            method_trace = try framework.observability.MethodTrace.begin(
+                self.allocator,
+                logger,
+                "AgentRuntime.runStream",
+                params_summary,
+                10000, // agent 执行通常较长，设置 10 秒阈值
+            );
+            summary_trace = try framework.observability.SummaryTrace.begin(
+                self.allocator,
+                logger,
+                "AgentRuntime.runStream",
+                10000,
+            );
+        }
+        defer {
+            if (method_trace) |*trace| trace.deinit();
+            if (summary_trace) |*trace| trace.deinit();
+        }
+
         try ensureNotCancelled(request);
 
         if (!framework.Authority.allows(request.authority, .operator) and std.mem.eql(u8, request.provider_id, "openai")) {
+            if (method_trace) |*trace| trace.finishError("ProviderPolicyDenied", "PROVIDER_POLICY_DENIED", false);
+            if (summary_trace) |*trace| trace.finishError(.auth);
             return error.ProviderPolicyDenied;
         }
 
         errdefer |run_err| {
+            if (method_trace) |*trace| trace.finishError(@errorName(run_err), null, false);
+            if (summary_trace) |*trace| {
+                const error_category: framework.observability.summary_trace.ExceptionCategory = if (run_err == error.ProviderPolicyDenied or run_err == error.PolicyDenied)
+                    .auth
+                else if (run_err == error.ToolLoopLimitReached or run_err == error.ProviderRoundBudgetExceeded or run_err == error.ExecutionDeadlineExceeded or run_err == error.ToolBudgetExceeded or run_err == error.ProviderAttemptBudgetExceeded)
+                    .business
+                else
+                    .system;
+                trace.finishError(error_category);
+            }
             self.publishRunFailure(request.session_id, request.stream_execution_id, run_err) catch {};
         }
 
@@ -440,6 +488,17 @@ pub const AgentRuntime = struct {
             turn_snapshot.latest_memory_entries_used
         else
             recall.entry_count;
+
+        // 完成追踪
+        const result_summary = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"toolRounds\":{d},\"providerRounds\":{d},\"latencyMs\":{d}}}",
+            .{ resolved_tool_rounds, provider_rounds, provider_latency_ms },
+        );
+        defer self.allocator.free(result_summary);
+        if (method_trace) |*trace| trace.finishSuccess(result_summary, false);
+        if (summary_trace) |*trace| trace.finishSuccess();
+
         return .{
             .session_id = try self.allocator.dupe(u8, request.session_id),
             .provider_id = try self.allocator.dupe(u8, request.provider_id),

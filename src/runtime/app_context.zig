@@ -246,6 +246,11 @@ pub const AppContext = struct {
             .services = undefined,
         };
 
+        // 设置 logger 到各个运行时组件
+        agent_runtime_ref.setLogger(self.framework_context.logger);
+        orchestrator.setLogger(self.framework_context.logger);
+        provider_registry.setLogger(self.framework_context.logger);
+
         config_hooks.* = config_runtime_hooks.ConfigRuntimeHooks.init(
             allocator,
             self.framework_context.logger,

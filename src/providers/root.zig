@@ -174,6 +174,7 @@ pub const ProviderRegistry = struct {
     secret_store: ?*security.MemorySecretStore = null,
     refresh_count: usize = 0,
     last_refresh_reason: ?[]u8 = null,
+    logger: ?*framework.Logger = null,
 
     const Self = @This();
 
@@ -189,6 +190,10 @@ pub const ProviderRegistry = struct {
     pub fn deinit(self: *Self) void {
         if (self.last_refresh_reason) |reason| self.allocator.free(reason);
         self.definitions.deinit(self.allocator);
+    }
+
+    pub fn setLogger(self: *Self, logger: *framework.Logger) void {
+        self.logger = logger;
     }
 
     pub fn markConfigRefresh(self: *Self, reason: []const u8) anyerror!void {
@@ -319,36 +324,110 @@ pub const ProviderRegistry = struct {
     }
 
     pub fn chatStream(self: *const Self, allocator: std.mem.Allocator, request: ProviderRequest) anyerror![]ProviderStreamChunk {
-        if (request.cancel_requested) |signal| {
-            if (signal.load(.acquire)) return error.StreamCancelled;
+        // 初始化方法追踪
+        const params_summary = try std.fmt.allocPrint(
+            allocator,
+            "{{\"providerId\":\"{s}\",\"model\":\"{s}\",\"messageCount\":{d},\"enableTools\":{s}}}",
+            .{ request.provider_id, request.model orelse "default", request.messages.len, if (request.enable_tools) "true" else "false" },
+        );
+        defer allocator.free(params_summary);
+
+        var method_trace: ?framework.observability.MethodTrace = null;
+        var summary_trace: ?framework.observability.SummaryTrace = null;
+        if (self.logger) |logger| {
+            const method_name = try std.fmt.allocPrint(allocator, "Provider.{s}.chatStream", .{request.provider_id});
+            defer allocator.free(method_name);
+            method_trace = try framework.observability.MethodTrace.begin(
+                allocator,
+                logger,
+                method_name,
+                params_summary,
+                3000, // provider 调用设置 3 秒阈值
+            );
+            summary_trace = try framework.observability.SummaryTrace.begin(
+                allocator,
+                logger,
+                method_name,
+                3000,
+            );
         }
-        const definition = self.find(request.provider_id) orelse return error.ProviderNotFound;
-        const secret_store = self.secret_store orelse return error.SecretStoreUnavailable;
-        const api_key = secret_store.get(definition.api_key_secret_ref) orelse return error.ProviderApiKeyMissing;
+        defer {
+            if (method_trace) |*trace| trace.deinit();
+            if (summary_trace) |*trace| trace.deinit();
+        }
+
+        if (request.cancel_requested) |signal| {
+            if (signal.load(.acquire)) {
+                if (method_trace) |*trace| trace.finishError("StreamCancelled", "STREAM_CANCELLED", false);
+                if (summary_trace) |*trace| trace.finishError(.business);
+                return error.StreamCancelled;
+            }
+        }
+        const definition = self.find(request.provider_id) orelse {
+            if (method_trace) |*trace| trace.finishError("ProviderNotFound", "PROVIDER_NOT_FOUND", false);
+            if (summary_trace) |*trace| trace.finishError(.business);
+            return error.ProviderNotFound;
+        };
+        const secret_store = self.secret_store orelse {
+            if (method_trace) |*trace| trace.finishError("SecretStoreUnavailable", "SECRET_STORE_UNAVAILABLE", false);
+            if (summary_trace) |*trace| trace.finishError(.system);
+            return error.SecretStoreUnavailable;
+        };
+        const api_key = secret_store.get(definition.api_key_secret_ref) orelse {
+            if (method_trace) |*trace| trace.finishError("ProviderApiKeyMissing", "PROVIDER_API_KEY_MISSING", false);
+            if (summary_trace) |*trace| trace.finishError(.business);
+            return error.ProviderApiKeyMissing;
+        };
 
         var attempt: u8 = 0;
         const max_attempts: u8 = request.retry_budget + 1;
         while (attempt < max_attempts) : (attempt += 1) {
             if (request.cancel_requested) |signal| {
-                if (signal.load(.acquire)) return error.StreamCancelled;
+                if (signal.load(.acquire)) {
+                    if (method_trace) |*trace| trace.finishError("StreamCancelled", "STREAM_CANCELLED", false);
+                    if (summary_trace) |*trace| trace.finishError(.business);
+                    return error.StreamCancelled;
+                }
             }
             if (request.remaining_attempt_budget) |budget| {
-                if (budget.* == 0) return error.ProviderAttemptBudgetExceeded;
+                if (budget.* == 0) {
+                    if (method_trace) |*trace| trace.finishError("ProviderAttemptBudgetExceeded", "PROVIDER_ATTEMPT_BUDGET_EXCEEDED", false);
+                    if (summary_trace) |*trace| trace.finishError(.business);
+                    return error.ProviderAttemptBudgetExceeded;
+                }
                 budget.* -= 1;
             }
             if (std.mem.eql(u8, definition.id, "openai") or std.mem.startsWith(u8, definition.endpoint, "mock://openai")) {
-                return openai_compatible.chatStream(allocator, definition, request, api_key) catch |err| {
+                const chunks = openai_compatible.chatStream(allocator, definition, request, api_key) catch |err| {
                     const mapped = mapError(err);
-                    if (!mapped.retriable) return err;
+                    if (!mapped.retriable) {
+                        if (method_trace) |*trace| trace.finishError(@errorName(err), mapped.code, false);
+                        if (summary_trace) |*trace| trace.finishError(.system);
+                        return err;
+                    }
                     if (attempt + 1 >= max_attempts) {
-                        if (request.retry_budget > 0 and err == error.ProviderTemporaryUnavailable) return error.ProviderRetryExhausted;
+                        if (request.retry_budget > 0 and err == error.ProviderTemporaryUnavailable) {
+                            if (method_trace) |*trace| trace.finishError("ProviderRetryExhausted", "PROVIDER_RETRY_EXHAUSTED", false);
+                            if (summary_trace) |*trace| trace.finishError(.system);
+                            return error.ProviderRetryExhausted;
+                        }
+                        if (method_trace) |*trace| trace.finishError(@errorName(err), mapped.code, false);
+                        if (summary_trace) |*trace| trace.finishError(.system);
                         return err;
                     }
                     continue;
                 };
+                // 成功返回
+                const result_summary = try std.fmt.allocPrint(allocator, "{{\"chunkCount\":{d}}}", .{chunks.len});
+                defer allocator.free(result_summary);
+                if (method_trace) |*trace| trace.finishSuccess(result_summary, false);
+                if (summary_trace) |*trace| trace.finishSuccess();
+                return chunks;
             }
         }
 
+        if (method_trace) |*trace| trace.finishError("ProviderNotImplemented", "PROVIDER_NOT_IMPLEMENTED", false);
+        if (summary_trace) |*trace| trace.finishError(.system);
         return error.ProviderNotImplemented;
     }
 
