@@ -32,6 +32,13 @@
 
 ## 最近结论
 
+- **Manager control-plane typed consumption 第二阶段已推进（2026-03-17）**：
+  - 已补 `gateway.token.*`、`gateway.password.*` typed snapshot/client
+  - 已补 `gateway.auth.status`、`gateway.remote.status/policy.status` 的 status view model typed consumption
+  - 已补 `devices.list`、`onboard.summary` typed consumption
+  - 已补 `NodeClient` 与 `NodesService / NodesViewModel`
+  - `ourclaw-manager` 当前全量测试通过（26/26）
+
 - **Docs Governance 已完成（2026-03-17）**：
   - `docs/README.md` 已收敛为四层首页导航
   - `architecture/README.md` 与 `planning/README.md` 已补目录索引页

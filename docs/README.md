@@ -28,6 +28,10 @@
 - `ourclaw/docs/contracts/error-model.md`
 - `ourclaw/docs/contracts/config-field-registry.md`
 
+当前如果要看 manager 与 runtime 的稳定消费边界，优先读：
+
+- `ourclaw/docs/contracts/manager-runtime-surface.md`
+
 ## Historical
 
 - `ourclaw/docs/planning/README.md`

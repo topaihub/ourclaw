@@ -21,15 +21,23 @@
 当前已锁定并开始 typed 化的面：
 
 1. `gateway.status`
-2. `service.status`
-3. `heartbeat.status`
-4. `session.get`
-5. `diagnostics.summary`
-6. `metrics.summary`
-7. `logs.recent`
-8. `events.poll`
-9. `task.get` / `task.by_request`
-10. `observer.recent`
+2. `gateway.auth.status`
+3. `gateway.remote.status`
+4. `gateway.remote.policy.status`
+5. `service.status`
+6. `heartbeat.status`
+7. `status.all`
+8. `session.get`
+9. `diagnostics.summary`
+10. `diagnostics.remediate_preview` / `diagnostics.remediate_apply`
+11. `metrics.summary`
+12. `logs.recent`
+13. `events.poll`
+14. `devices.list`
+15. `onboard.summary`
+16. `node.list` / `node.describe` / `node.invoke`
+17. `task.get` / `task.by_request`
+18. `observer.recent`
 
 ## 4. `gateway.status`
 
@@ -80,6 +88,45 @@
 - `restartCount`
 - `hostStartCount`
 - `hostTickCount`
+
+## 5.1 `gateway.auth.status`
+
+### stable
+
+- `requirePairing`
+- `pendingPairings`
+- `approvedPairings`
+- `sharedTokenSupported`
+- `sharedTokenConfigured`
+- `tokenLifecycleAvailable`
+- `passwordSupported`
+- `passwordConfigured`
+- `remoteAccessSupported`
+- `bindHost`
+- `bindPort`
+- `gatewayRunning`
+- `nextAction`
+
+## 5.2 `gateway.remote.status`
+
+### stable
+
+- `tunnelActive`
+- `tunnelKind`
+- `tunnelEndpoint`
+- `tunnelHealthState`
+- `tunnelHealthMessage`
+- `sharedTokenConfigured`
+- `localAccessUrl`
+- `nextAction`
+
+## 5.3 `gateway.remote.policy.status`
+
+### stable
+
+- `remoteEnabled`
+- `defaultEndpoint`
+- `revokeTokenOnDisable`
 
 ## 6. `heartbeat.status`
 
@@ -149,6 +196,26 @@
 - `runtimeHost.*`
 - `service.*`
 - `metrics.*`
+
+## 8.1 `diagnostics.remediate_preview` / `diagnostics.remediate_apply`
+
+### stable
+
+- `action`
+- `wouldChange` (`preview`)
+- `requiresRestart` (`preview`)
+- `summary` (`preview`)
+- `applied` (`apply`)
+
+### provisional
+
+- `changed`
+- `installed`
+- `active`
+- `endpoint`
+- `gatewayRequirePairing`
+- `token`
+- `errorCode`
 
 ## 9. `metrics.summary`
 
@@ -227,6 +294,54 @@
 
 说明：`ourclaw-manager` 的 typed runtime client 不应把 `result` 纳入稳定 typed snapshot；如需显示或调试，应继续通过原始 JSON/result envelope 读取。
 
+## 12.1 `devices.list`
+
+### stable
+
+- `requirePairing`
+- `pairing.total`
+- `pairing.pending`
+- `pairing.approved`
+- `nodes.total`
+- `nodes.ready`
+- `nodes.broken`
+- `peripherals.total`
+- `peripherals.ready`
+- `peripherals.broken`
+
+## 12.2 `onboard.summary`
+
+### stable
+
+- `readyCount`
+- `totalChecks`
+- `secretsConfigured`
+- `providersAvailable`
+- `gatewayPairingEnabled`
+- `serviceInstalled`
+- `devicesReady`
+- `pendingPairingCount`
+- `nextStep`
+
+## 12.3 `node.list` / `node.describe` / `node.invoke`
+
+### stable
+
+- `id`
+- `label`
+- `kind`
+- `healthState`
+- `healthMessage`
+- `probeCount`
+- `lastCheckedMs`
+- `lastErrorCode`
+
+### provisional
+
+- `registeredAtMs`
+- `approvedPairingCount`
+- `action` (`node.invoke`)
+
 ## 13. `observer.recent`
 
 ### stable
@@ -246,22 +361,39 @@
 
 - runtime 命令面：
   - `ourclaw/src/commands/gateway_status.zig`
+  - `ourclaw/src/commands/gateway_auth_status.zig`
+  - `ourclaw/src/commands/gateway_remote_status.zig`
+  - `ourclaw/src/commands/gateway_remote_policy_status.zig`
   - `ourclaw/src/commands/service_status.zig`
   - `ourclaw/src/commands/heartbeat_status.zig`
+  - `ourclaw/src/commands/status_all.zig`
   - `ourclaw/src/commands/session_get.zig`
+  - `ourclaw/src/commands/diagnostics_remediate_preview.zig`
+  - `ourclaw/src/commands/diagnostics_remediate_apply.zig`
+  - `ourclaw/src/commands/devices_list.zig`
+  - `ourclaw/src/commands/onboard_summary.zig`
+  - `ourclaw/src/commands/node_list.zig`
+  - `ourclaw/src/commands/node_describe.zig`
+  - `ourclaw/src/commands/node_invoke.zig`
 - manager typed reader：
   - `ourclaw-manager/src/runtime_client/types.zig`
   - `ourclaw-manager/src/runtime_client/status_client.zig`
+  - `ourclaw-manager/src/runtime_client/node_client.zig`
   - `ourclaw-manager/src/runtime_client/memory_client.zig`
   - `ourclaw-manager/src/runtime_client/diagnostics_client.zig`
   - `ourclaw-manager/src/runtime_client/events_client.zig`
+  - `ourclaw-manager/src/runtime_client/onboard_client.zig`
+  - `ourclaw-manager/src/runtime_client/devices_client.zig`
   - `ourclaw-manager/src/view_models/status_view_model.zig`
   - `ourclaw-manager/src/view_models/diagnostics_view_model.zig`
   - `ourclaw-manager/src/view_models/logs_view_model.zig`
+  - `ourclaw-manager/src/view_models/onboard_view_model.zig`
+  - `ourclaw-manager/src/view_models/devices_view_model.zig`
+  - `ourclaw-manager/src/view_models/nodes_view_model.zig`
 
 ## 15. 当前结论
 
-`B5` 当前已经把 **status / session / diagnostics / metrics / logs / events / task / observer** 这些 manager 常用面推进到“文档稳定矩阵 + runtime_client typed reader + 部分 view model typed 消费”三层闭环。
+当前已经把 **status / session / diagnostics / metrics / logs / events / task / observer / devices / onboarding / gateway auth / gateway remote / nodes** 这些 manager 常用面推进到“文档稳定矩阵 + runtime_client typed reader + 部分 view model typed 消费”三层闭环。
 
 仍需注意：
 
