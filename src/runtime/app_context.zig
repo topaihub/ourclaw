@@ -27,17 +27,21 @@ const runtime_host = @import("runtime_host.zig");
 const service_manager = @import("service_manager.zig");
 const daemon = @import("daemon.zig");
 const pairing_registry = @import("pairing_registry.zig");
+const channel_ingress = @import("channel_ingress.zig");
 const stream_registry = @import("stream_registry.zig");
 const config_runtime_hooks = @import("config_runtime_hooks.zig");
 const http_adapter = @import("../interfaces/http_adapter.zig");
 
 pub const AppBootstrapConfig = struct {
     framework: framework.AppBootstrapConfig = .{},
+    trace_log_path: ?[]const u8 = "logs/ourclaw.log",
+    trace_log_max_bytes: ?u64 = 8 * 1024 * 1024,
 };
 
 pub const AppContext = struct {
     allocator: std.mem.Allocator,
     framework_context: framework.AppContext,
+    trace_file_sink: ?*framework.TraceTextFileSink,
     field_registry: *config.ConfigFieldRegistry,
     secret_store: *security.MemorySecretStore,
     security_policy: *security.SecurityPolicy,
@@ -53,6 +57,7 @@ pub const AppContext = struct {
     hardware_registry: *hardware.HardwareRegistry,
     voice_runtime: *voice_runtime.VoiceRuntime,
     pairing_registry: *pairing_registry.PairingRegistry,
+    channel_ingress: *channel_ingress.ChannelIngressRuntime,
     agent_runtime: *agent_runtime.AgentRuntime,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
@@ -151,6 +156,10 @@ pub const AppContext = struct {
         errdefer allocator.destroy(pairing_registry_ref);
         pairing_registry_ref.* = pairing_registry.PairingRegistry.init(allocator);
 
+        const channel_ingress_ref = try allocator.create(channel_ingress.ChannelIngressRuntime);
+        errdefer allocator.destroy(channel_ingress_ref);
+        channel_ingress_ref.* = channel_ingress.ChannelIngressRuntime.init(allocator);
+
         const memory_runtime_ref = try allocator.create(memory_runtime.MemoryRuntime);
         errdefer allocator.destroy(memory_runtime_ref);
         memory_runtime_ref.* = memory_runtime.MemoryRuntime.init(allocator);
@@ -158,6 +167,46 @@ pub const AppContext = struct {
 
         var framework_context = try framework.AppContext.init(allocator, bootstrap.framework);
         errdefer framework_context.deinit();
+
+        // 创建 TraceTextFileSink 并替换 framework 的 logger sink
+        var trace_file_sink: ?*framework.TraceTextFileSink = null;
+        if (bootstrap.trace_log_path) |trace_log_path| {
+            const sink = try allocator.create(framework.TraceTextFileSink);
+            errdefer allocator.destroy(sink);
+            sink.* = try framework.TraceTextFileSink.init(
+                allocator,
+                trace_log_path,
+                bootstrap.trace_log_max_bytes,
+                .{
+                    .include_observer = false,
+                    .include_runtime_dispatch = false,
+                    .include_framework_method_trace = false,
+                },
+            );
+            trace_file_sink = sink;
+
+            // 重新创建 logger，使用 TraceTextFileSink
+            var sinks: std.ArrayListUnmanaged(framework.LogSink) = .empty;
+            defer sinks.deinit(allocator);
+            try sinks.append(allocator, framework_context.memory_sink.asLogSink());
+            try sinks.append(allocator, sink.asLogSink());
+
+            if (framework_context.logger_multi_sink) |old_multi_sink| {
+                old_multi_sink.deinit();
+                allocator.destroy(old_multi_sink);
+            }
+
+            const new_multi_sink = try allocator.create(framework.MultiSink);
+            errdefer allocator.destroy(new_multi_sink);
+            new_multi_sink.* = try framework.MultiSink.init(allocator, sinks.items);
+            framework_context.logger_multi_sink = new_multi_sink;
+
+            framework_context.logger.deinit();
+            framework_context.logger.* = framework.Logger.init(
+                new_multi_sink.asLogSink(),
+                bootstrap.framework.log_level,
+            );
+        }
 
         const output = try allocator.create(stream_output.StreamOutput);
         errdefer allocator.destroy(output);
@@ -211,6 +260,7 @@ pub const AppContext = struct {
         self.* = .{
             .allocator = allocator,
             .framework_context = framework_context,
+            .trace_file_sink = trace_file_sink,
             .field_registry = field_registry,
             .secret_store = secret_store,
             .security_policy = security_policy,
@@ -226,6 +276,7 @@ pub const AppContext = struct {
             .hardware_registry = hardware_registry,
             .voice_runtime = voice_runtime_ref,
             .pairing_registry = pairing_registry_ref,
+            .channel_ingress = channel_ingress_ref,
             .agent_runtime = agent_runtime_ref,
             .session_store = session_store,
             .stream_output = output,
@@ -282,6 +333,7 @@ pub const AppContext = struct {
             .hardware_registry = self.hardware_registry,
             .voice_runtime = self.voice_runtime,
             .pairing_registry = self.pairing_registry,
+            .channel_ingress = self.channel_ingress,
             .session_store = self.session_store,
             .stream_output = self.stream_output,
             .tool_orchestrator = self.tool_orchestrator,
@@ -322,6 +374,8 @@ pub const AppContext = struct {
         self.allocator.destroy(self.voice_runtime);
         self.pairing_registry.deinit();
         self.allocator.destroy(self.pairing_registry);
+        self.channel_ingress.deinit();
+        self.allocator.destroy(self.channel_ingress);
         self.allocator.free(self.effective_gateway_remote_default_endpoint);
         self.mcp_runtime.deinit();
         self.allocator.destroy(self.mcp_runtime);
@@ -344,6 +398,10 @@ pub const AppContext = struct {
         self.secret_store.deinit();
         self.allocator.destroy(self.secret_store);
         self.allocator.destroy(self.field_registry);
+        if (self.trace_file_sink) |sink| {
+            sink.deinit();
+            self.allocator.destroy(sink);
+        }
         self.framework_context.deinit();
         self.allocator.destroy(self);
     }

@@ -14,6 +14,7 @@ const peripherals = @import("peripherals.zig");
 const hardware = @import("hardware.zig");
 const voice_runtime = @import("voice_runtime.zig");
 const pairing_registry = @import("../runtime/pairing_registry.zig");
+const channel_ingress = @import("../runtime/channel_ingress.zig");
 const stream_output = @import("stream_output.zig");
 const tool_orchestrator = @import("tool_orchestrator.zig");
 
@@ -35,6 +36,7 @@ pub const CommandServices = struct {
     hardware_registry: *hardware.HardwareRegistry,
     voice_runtime: *voice_runtime.VoiceRuntime,
     pairing_registry: *pairing_registry.PairingRegistry,
+    channel_ingress: *channel_ingress.ChannelIngressRuntime,
     session_store: *session_state.SessionStore,
     stream_output: *stream_output.StreamOutput,
     tool_orchestrator: *tool_orchestrator.ToolOrchestrator,
