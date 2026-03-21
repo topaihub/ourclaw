@@ -189,6 +189,8 @@ test "app meta command definition is stable" {
     defer voice_runtime.deinit();
     var pairing_registry = @import("../runtime/pairing_registry.zig").PairingRegistry.init(std.testing.allocator);
     defer pairing_registry.deinit();
+    var channel_ingress = @import("../runtime/channel_ingress.zig").ChannelIngressRuntime.init(std.testing.allocator);
+    defer channel_ingress.deinit();
     var memory_runtime = @import("../domain/memory_runtime.zig").MemoryRuntime.init(std.testing.allocator);
     defer memory_runtime.deinit();
     var session_store = @import("../domain/session_state.zig").SessionStore.init(std.testing.allocator);
@@ -213,6 +215,7 @@ test "app meta command definition is stable" {
         .hardware_registry = &hardware_registry,
         .voice_runtime = &voice_runtime,
         .pairing_registry = &pairing_registry,
+        .channel_ingress = &channel_ingress,
         .session_store = &session_store,
         .stream_output = &output,
         .tool_orchestrator = &orchestrator,

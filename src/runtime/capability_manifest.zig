@@ -97,6 +97,8 @@ test "build capability manifest from command services" {
     defer voice_runtime.deinit();
     var pairing_registry = @import("pairing_registry.zig").PairingRegistry.init(std.testing.allocator);
     defer pairing_registry.deinit();
+    var channel_ingress = @import("channel_ingress.zig").ChannelIngressRuntime.init(std.testing.allocator);
+    defer channel_ingress.deinit();
     var session_store = @import("../domain/session_state.zig").SessionStore.init(std.testing.allocator);
     defer session_store.deinit();
     var output = @import("../domain/stream_output.zig").StreamOutput.init(std.testing.allocator, &session_store, null, null);
@@ -119,6 +121,7 @@ test "build capability manifest from command services" {
         .hardware_registry = &hardware_registry,
         .voice_runtime = &voice_runtime,
         .pairing_registry = &pairing_registry,
+        .channel_ingress = &channel_ingress,
         .session_store = &session_store,
         .stream_output = &output,
         .tool_orchestrator = &orchestrator,
