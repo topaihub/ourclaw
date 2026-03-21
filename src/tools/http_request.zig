@@ -1,6 +1,6 @@
 const std = @import("std");
 const http_util = @import("../compat/http_util.zig");
-const tools = @import("root.zig");
+const tools = @import("contracts.zig");
 
 pub fn execute(ctx: tools.ToolExecutionContext, allocator: std.mem.Allocator, input_json: []const u8) anyerror![]u8 {
     if (ctx.isCancelled()) return error.StreamCancelled;
