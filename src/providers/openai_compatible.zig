@@ -1,15 +1,16 @@
 const std = @import("std");
-const root = @import("root.zig");
+const contracts = @import("contracts.zig");
+const registry = @import("registry.zig");
 const http_util = @import("../compat/http_util.zig");
 
 var mock_retry_once_counter: usize = 0;
 
 pub fn chatStream(
     allocator: std.mem.Allocator,
-    definition: root.ProviderDefinition,
-    request: root.ProviderRequest,
+    definition: registry.ProviderDefinition,
+    request: contracts.ProviderRequest,
     api_key: []const u8,
-) anyerror![]root.ProviderStreamChunk {
+) anyerror![]contracts.ProviderStreamChunk {
     if (std.mem.eql(u8, definition.endpoint, "mock://openai/chat_timeout")) {
         return error.ProviderTimeout;
     }
@@ -43,7 +44,7 @@ pub fn chatStream(
         return chatStreamSse(allocator, definition, request, api_key);
     }
 
-    var chunks: std.ArrayListUnmanaged(root.ProviderStreamChunk) = .empty;
+    var chunks: std.ArrayListUnmanaged(contracts.ProviderStreamChunk) = .empty;
     errdefer {
         for (chunks.items) |*chunk| chunk.deinit(allocator);
         chunks.deinit(allocator);
@@ -112,10 +113,10 @@ pub fn chatStream(
 
 fn chatStreamSse(
     allocator: std.mem.Allocator,
-    definition: root.ProviderDefinition,
-    request: root.ProviderRequest,
+    definition: registry.ProviderDefinition,
+    request: contracts.ProviderRequest,
     api_key: []const u8,
-) anyerror![]root.ProviderStreamChunk {
+) anyerror![]contracts.ProviderStreamChunk {
     var body: std.ArrayListUnmanaged(u8) = .empty;
     defer body.deinit(allocator);
     const writer = body.writer(allocator);
@@ -143,8 +144,8 @@ fn chatStreamSse(
     return parseSseChunks(allocator, response.body);
 }
 
-fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![]root.ProviderStreamChunk {
-    var chunks: std.ArrayListUnmanaged(root.ProviderStreamChunk) = .empty;
+fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![]contracts.ProviderStreamChunk {
+    var chunks: std.ArrayListUnmanaged(contracts.ProviderStreamChunk) = .empty;
     errdefer {
         for (chunks.items) |*chunk| chunk.deinit(allocator);
         chunks.deinit(allocator);
@@ -234,10 +235,10 @@ fn parseSseChunks(allocator: std.mem.Allocator, sse_body: []const u8) anyerror![
 
 pub fn chatOnce(
     allocator: std.mem.Allocator,
-    definition: root.ProviderDefinition,
-    request: root.ProviderRequest,
+    definition: registry.ProviderDefinition,
+    request: contracts.ProviderRequest,
     api_key: []const u8,
-) anyerror!root.ProviderResponse {
+) anyerror!contracts.ProviderResponse {
     var effective_definition = definition;
     if (std.mem.eql(u8, definition.endpoint, "mock://openai/chat_timeout")) {
         return error.ProviderTimeout;
@@ -309,10 +310,10 @@ pub fn chatOnce(
 
 pub fn embedText(
     allocator: std.mem.Allocator,
-    definition: root.ProviderDefinition,
-    request: root.EmbeddingRequest,
+    definition: registry.ProviderDefinition,
+    request: contracts.EmbeddingRequest,
     api_key: []const u8,
-) anyerror!root.EmbeddingResponse {
+) anyerror!contracts.EmbeddingResponse {
     _ = api_key;
     return .{
         .provider_id = try allocator.dupe(u8, request.provider_id),
@@ -420,8 +421,8 @@ fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
     try writer.writeByte('"');
 }
 
-fn embedLocally(text: []const u8) root.EmbeddingVector {
-    var vector: root.EmbeddingVector = .{ 0, 0, 0, 0, 0, 0, 0, 0 };
+fn embedLocally(text: []const u8) contracts.EmbeddingVector {
+    var vector: contracts.EmbeddingVector = .{ 0, 0, 0, 0, 0, 0, 0, 0 };
     for (text) |ch| {
         const bucket = ch % vector.len;
         vector[bucket] += 1;
@@ -429,18 +430,18 @@ fn embedLocally(text: []const u8) root.EmbeddingVector {
     return normalize(vector);
 }
 
-fn shouldEmitToolCall(request: root.ProviderRequest) bool {
+fn shouldEmitToolCall(request: contracts.ProviderRequest) bool {
     return request.enable_tools and containsMessage(request.messages, "CALL_TOOL:echo") and !containsMessage(request.messages, "Tool Result:");
 }
 
-fn containsMessage(messages: []const root.ProviderMessage, needle: []const u8) bool {
+fn containsMessage(messages: []const contracts.ProviderMessage, needle: []const u8) bool {
     for (messages) |message| {
         if (std.mem.indexOf(u8, message.content, needle) != null) return true;
     }
     return false;
 }
 
-fn appendTextChunks(allocator: std.mem.Allocator, chunks: *std.ArrayListUnmanaged(root.ProviderStreamChunk), texts: []const []const u8) anyerror!void {
+fn appendTextChunks(allocator: std.mem.Allocator, chunks: *std.ArrayListUnmanaged(contracts.ProviderStreamChunk), texts: []const []const u8) anyerror!void {
     for (texts) |text| {
         try chunks.append(allocator, .{
             .kind = .text_delta,
@@ -449,7 +450,7 @@ fn appendTextChunks(allocator: std.mem.Allocator, chunks: *std.ArrayListUnmanage
     }
 }
 
-fn normalize(vector: root.EmbeddingVector) root.EmbeddingVector {
+fn normalize(vector: contracts.EmbeddingVector) contracts.EmbeddingVector {
     var sum: f32 = 0;
     for (vector) |value| sum += value * value;
     if (sum == 0) return vector;
@@ -460,7 +461,7 @@ fn normalize(vector: root.EmbeddingVector) root.EmbeddingVector {
 }
 
 test "openai compatible provider parses mock response" {
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai",
         .messages = &.{.{ .role = .user, .content = "hello" }},
     };
@@ -480,7 +481,7 @@ test "openai compatible provider parses mock response" {
 }
 
 test "openai compatible provider parses tool call response" {
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai",
         .messages = &.{.{ .role = .user, .content = "CALL_TOOL:echo" }},
         .enable_tools = true,
@@ -520,11 +521,11 @@ test "openai compatible provider returns embedding response" {
 
     try std.testing.expectEqualStrings("mock_openai", response.provider_id);
     try std.testing.expectEqualStrings("text-embedding-3-small", response.model);
-    try std.testing.expectEqual(root.EmbeddingStrategy.provider_proxy_v1, response.strategy);
+    try std.testing.expectEqual(contracts.EmbeddingStrategy.provider_proxy_v1, response.strategy);
 }
 
 test "openai compatible provider returns timeout for timeout mock endpoint" {
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai_timeout",
         .messages = &.{.{ .role = .user, .content = "hello" }},
     };
@@ -541,7 +542,7 @@ test "openai compatible provider returns timeout for timeout mock endpoint" {
 
 test "openai compatible provider honours cancellation signal" {
     var cancelled = std.atomic.Value(bool).init(true);
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai_cancel_wait",
         .messages = &.{.{ .role = .user, .content = "hello" }},
         .cancel_requested = &cancelled,
@@ -558,7 +559,7 @@ test "openai compatible provider honours cancellation signal" {
 }
 
 test "openai compatible provider emits native text stream chunks" {
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai_stream",
         .messages = &.{.{ .role = .user, .content = "hello" }},
     };
@@ -577,12 +578,12 @@ test "openai compatible provider emits native text stream chunks" {
     }
 
     try std.testing.expect(chunks.len >= 2);
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.done, chunks[chunks.len - 1].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.done, chunks[chunks.len - 1].kind);
 }
 
 test "openai compatible provider emits tool call mid-stream" {
-    const request = root.ProviderRequest{
+    const request = contracts.ProviderRequest{
         .provider_id = "mock_openai_stream_tool",
         .messages = &.{.{ .role = .user, .content = "CALL_TOOL:echo" }},
         .enable_tools = true,
@@ -602,8 +603,8 @@ test "openai compatible provider emits tool call mid-stream" {
         std.testing.allocator.free(chunks);
     }
 
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.tool_call, chunks[1].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.tool_call, chunks[1].kind);
     try std.testing.expectEqualStrings("echo", chunks[1].tool_name.?);
 }
 
@@ -655,8 +656,8 @@ test "openai compatible provider parses SSE chat stream endpoint" {
         std.testing.allocator.free(chunks);
     }
 
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.text_delta, chunks[0].kind);
     try std.testing.expectEqualStrings("mock ", chunks[0].text.?);
-    try std.testing.expectEqual(root.ProviderStreamChunk.Kind.done, chunks[chunks.len - 1].kind);
+    try std.testing.expectEqual(contracts.ProviderStreamChunk.Kind.done, chunks[chunks.len - 1].kind);
     try std.testing.expectEqualStrings("stop", chunks[chunks.len - 1].finish_reason.?);
 }
