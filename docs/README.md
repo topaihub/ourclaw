@@ -17,6 +17,12 @@
 - `ourclaw/docs/backup/framework-based-ourclaw/tasks.md`
 - `ourclaw/docs/specs/framework-based-ourclaw/archive/completed-mainline-tasks-2026-03-16.md`
 
+## Focused Specs
+
+- `ourclaw/docs/specs/ourclaw-src-restructure/requirements.md`
+- `ourclaw/docs/specs/ourclaw-src-restructure/design.md`
+- `ourclaw/docs/specs/ourclaw-src-restructure/tasks.md`
+
 ## Supporting
 
 - `ourclaw/docs/architecture/README.md`
