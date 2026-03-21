@@ -8,3 +8,12 @@ tmp.zig
 .zig-cache/
 zig-out/
 .DS_Store
+.zig-cache-local/
+.zig-global-cache/
+logs/
+scripts/
+test-ourclaw.ps1
+docs/changelog/
+docs/comparison/
+docs/design/
+docs/specs/cli-command-style-refactor/
