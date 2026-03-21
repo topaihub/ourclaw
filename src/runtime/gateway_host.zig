@@ -197,6 +197,10 @@ pub const GatewayHost = struct {
             };
             defer conn.stream.close();
 
+            if (self.stop_requested.load(.acquire)) {
+                break;
+            }
+
             self.handleConnection(&conn.stream);
         }
     }
