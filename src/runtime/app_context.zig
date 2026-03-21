@@ -20,8 +20,11 @@ const session_state = @import("../domain/session_state.zig");
 const stream_output = @import("../domain/stream_output.zig");
 const tool_orchestrator = @import("../domain/tool_orchestrator.zig");
 const services_model = @import("../domain/services.zig");
+const core_bootstrap = @import("bootstrap/core_bootstrap.zig");
+const domain_bootstrap = @import("bootstrap/domain_bootstrap.zig");
 const heartbeat = @import("heartbeat.zig");
 const cron = @import("cron.zig");
+const control_plane_bootstrap = @import("bootstrap/control_plane_bootstrap.zig");
 const gateway_host = @import("gateway_host.zig");
 const runtime_host = @import("runtime_host.zig");
 const service_manager = @import("service_manager.zig");
@@ -88,179 +91,151 @@ pub const AppContext = struct {
         self.effective_gateway_remote_default_endpoint = try allocator.dupe(u8, "mock://tunnel/healthy");
         self.effective_gateway_remote_revoke_on_disable = true;
 
-        const field_registry = try allocator.create(config.ConfigFieldRegistry);
+        const field_registry = try core_bootstrap.initFieldRegistry(allocator);
         errdefer allocator.destroy(field_registry);
-        field_registry.* = .{};
 
-        const secret_store = try allocator.create(security.MemorySecretStore);
-        errdefer allocator.destroy(secret_store);
-        secret_store.* = security.MemorySecretStore.init(allocator);
-
-        const security_policy = try allocator.create(security.SecurityPolicy);
-        errdefer allocator.destroy(security_policy);
-        security_policy.* = .{};
-
-        const provider_registry = try allocator.create(providers.ProviderRegistry);
-        errdefer allocator.destroy(provider_registry);
-        provider_registry.* = providers.ProviderRegistry.init(allocator);
-        provider_registry.setSecretStore(secret_store);
-        try provider_registry.registerBuiltins();
-
-        const channel_registry = try allocator.create(channels.ChannelRegistry);
-        errdefer allocator.destroy(channel_registry);
-        channel_registry.* = channels.ChannelRegistry.init(allocator);
-        try channel_registry.registerBuiltins();
-
-        const tool_registry = try allocator.create(tools.ToolRegistry);
-        errdefer allocator.destroy(tool_registry);
-        tool_registry.* = tools.ToolRegistry.init(allocator);
-        try tool_registry.registerBuiltins();
-
-        const session_store = try allocator.create(session_state.SessionStore);
-        errdefer allocator.destroy(session_store);
-        session_store.* = session_state.SessionStore.init(allocator);
-
-        const skill_registry = try allocator.create(skills.SkillRegistry);
-        errdefer allocator.destroy(skill_registry);
-        skill_registry.* = skills.SkillRegistry.init(allocator);
-
-        const skillforge_ref = try allocator.create(skillforge.SkillForge);
-        errdefer allocator.destroy(skillforge_ref);
-        skillforge_ref.* = skillforge.SkillForge.init(skill_registry);
-        try skillforge_ref.installBuiltin("doctor");
-
-        const tunnel_runtime_ref = try allocator.create(tunnel_runtime.TunnelRuntime);
-        errdefer allocator.destroy(tunnel_runtime_ref);
-        tunnel_runtime_ref.* = tunnel_runtime.TunnelRuntime.init(allocator);
-
-        const mcp_runtime_ref = try allocator.create(mcp_runtime.McpRuntime);
-        errdefer allocator.destroy(mcp_runtime_ref);
-        mcp_runtime_ref.* = mcp_runtime.McpRuntime.init(allocator);
-        try mcp_runtime_ref.register("local", "stdio", null);
-
-        const peripheral_registry = try allocator.create(peripherals.PeripheralRegistry);
-        errdefer allocator.destroy(peripheral_registry);
-        peripheral_registry.* = peripherals.PeripheralRegistry.init(allocator);
-        try peripheral_registry.register("camera", "video");
-
-        const hardware_registry = try allocator.create(hardware.HardwareRegistry);
-        errdefer allocator.destroy(hardware_registry);
-        hardware_registry.* = hardware.HardwareRegistry.init(allocator);
-        try hardware_registry.register("gpu0", "Primary GPU");
-
-        const voice_runtime_ref = try allocator.create(voice_runtime.VoiceRuntime);
-        errdefer allocator.destroy(voice_runtime_ref);
-        voice_runtime_ref.* = voice_runtime.VoiceRuntime.init(allocator);
-
-        const pairing_registry_ref = try allocator.create(pairing_registry.PairingRegistry);
-        errdefer allocator.destroy(pairing_registry_ref);
-        pairing_registry_ref.* = pairing_registry.PairingRegistry.init(allocator);
-
-        const channel_ingress_ref = try allocator.create(channel_ingress.ChannelIngressRuntime);
-        errdefer allocator.destroy(channel_ingress_ref);
-        channel_ingress_ref.* = channel_ingress.ChannelIngressRuntime.init(allocator);
-
-        const memory_runtime_ref = try allocator.create(memory_runtime.MemoryRuntime);
-        errdefer allocator.destroy(memory_runtime_ref);
-        memory_runtime_ref.* = memory_runtime.MemoryRuntime.init(allocator);
-        memory_runtime_ref.bindProviderRegistry(provider_registry);
-
-        var framework_context = try framework.AppContext.init(allocator, bootstrap.framework);
-        errdefer framework_context.deinit();
-
-        // 创建 TraceTextFileSink 并替换 framework 的 logger sink
-        var trace_file_sink: ?*framework.TraceTextFileSink = null;
-        if (bootstrap.trace_log_path) |trace_log_path| {
-            const sink = try allocator.create(framework.TraceTextFileSink);
-            errdefer allocator.destroy(sink);
-            sink.* = try framework.TraceTextFileSink.init(
-                allocator,
-                trace_log_path,
-                bootstrap.trace_log_max_bytes,
-                .{
-                    .include_observer = false,
-                    .include_runtime_dispatch = false,
-                    .include_framework_method_trace = false,
-                },
-            );
-            trace_file_sink = sink;
-
-            // 重新创建 logger，使用 TraceTextFileSink
-            var sinks: std.ArrayListUnmanaged(framework.LogSink) = .empty;
-            defer sinks.deinit(allocator);
-            try sinks.append(allocator, framework_context.memory_sink.asLogSink());
-            try sinks.append(allocator, sink.asLogSink());
-
-            if (framework_context.logger_multi_sink) |old_multi_sink| {
-                old_multi_sink.deinit();
-                allocator.destroy(old_multi_sink);
-            }
-
-            const new_multi_sink = try allocator.create(framework.MultiSink);
-            errdefer allocator.destroy(new_multi_sink);
-            new_multi_sink.* = try framework.MultiSink.init(allocator, sinks.items);
-            framework_context.logger_multi_sink = new_multi_sink;
-
-            framework_context.logger.deinit();
-            framework_context.logger.* = framework.Logger.init(
-                new_multi_sink.asLogSink(),
-                bootstrap.framework.log_level,
-            );
+        const secret_store = try core_bootstrap.initSecretStore(allocator);
+        errdefer {
+            secret_store.deinit();
+            allocator.destroy(secret_store);
         }
 
-        const output = try allocator.create(stream_output.StreamOutput);
-        errdefer allocator.destroy(output);
-        output.* = stream_output.StreamOutput.init(
-            allocator,
-            session_store,
-            framework_context.observer(),
-            framework_context.eventBus(),
-        );
+        const security_policy = try core_bootstrap.initSecurityPolicy(allocator);
+        errdefer allocator.destroy(security_policy);
 
-        const orchestrator = try allocator.create(tool_orchestrator.ToolOrchestrator);
+        const provider_registry = try core_bootstrap.initProviderRegistry(allocator, secret_store);
+        errdefer {
+            provider_registry.deinit();
+            allocator.destroy(provider_registry);
+        }
+
+        const channel_registry = try core_bootstrap.initChannelRegistry(allocator);
+        errdefer {
+            channel_registry.deinit();
+            allocator.destroy(channel_registry);
+        }
+
+        const tool_registry = try core_bootstrap.initToolRegistry(allocator);
+        errdefer {
+            tool_registry.deinit();
+            allocator.destroy(tool_registry);
+        }
+
+        const session_store = try domain_bootstrap.initSessionStore(allocator);
+        errdefer {
+            session_store.deinit();
+            allocator.destroy(session_store);
+        }
+
+        const skill_registry = try domain_bootstrap.initSkillRegistry(allocator);
+        errdefer {
+            skill_registry.deinit();
+            allocator.destroy(skill_registry);
+        }
+
+        const skillforge_ref = try domain_bootstrap.initSkillforge(allocator, skill_registry);
+        errdefer allocator.destroy(skillforge_ref);
+
+        const tunnel_runtime_ref = try domain_bootstrap.initTunnelRuntime(allocator);
+        errdefer {
+            tunnel_runtime_ref.deinit();
+            allocator.destroy(tunnel_runtime_ref);
+        }
+
+        const mcp_runtime_ref = try domain_bootstrap.initMcpRuntime(allocator);
+        errdefer {
+            mcp_runtime_ref.deinit();
+            allocator.destroy(mcp_runtime_ref);
+        }
+
+        const peripheral_registry = try domain_bootstrap.initPeripheralRegistry(allocator);
+        errdefer {
+            peripheral_registry.deinit();
+            allocator.destroy(peripheral_registry);
+        }
+
+        const hardware_registry = try domain_bootstrap.initHardwareRegistry(allocator);
+        errdefer {
+            hardware_registry.deinit();
+            allocator.destroy(hardware_registry);
+        }
+
+        const voice_runtime_ref = try domain_bootstrap.initVoiceRuntime(allocator);
+        errdefer {
+            voice_runtime_ref.deinit();
+            allocator.destroy(voice_runtime_ref);
+        }
+
+        const pairing_registry_ref = try domain_bootstrap.initPairingRegistry(allocator);
+        errdefer {
+            pairing_registry_ref.deinit();
+            allocator.destroy(pairing_registry_ref);
+        }
+
+        const channel_ingress_ref = try domain_bootstrap.initChannelIngress(allocator);
+        errdefer {
+            channel_ingress_ref.deinit();
+            allocator.destroy(channel_ingress_ref);
+        }
+
+        const memory_runtime_ref = try domain_bootstrap.initMemoryRuntime(allocator, provider_registry);
+        errdefer {
+            memory_runtime_ref.deinit();
+            allocator.destroy(memory_runtime_ref);
+        }
+
+        var framework_setup = try core_bootstrap.initFrameworkSetup(allocator, bootstrap.framework, bootstrap.trace_log_path, bootstrap.trace_log_max_bytes);
+        errdefer framework_setup.deinit(allocator);
+
+        const output = try domain_bootstrap.initStreamOutput(allocator, session_store, framework_setup.framework_context.observer(), framework_setup.framework_context.eventBus());
+        errdefer {
+            output.deinit();
+            allocator.destroy(output);
+        }
+
+        const orchestrator = try domain_bootstrap.initToolOrchestrator(allocator, tool_registry, output);
         errdefer allocator.destroy(orchestrator);
-        orchestrator.* = tool_orchestrator.ToolOrchestrator.init(allocator, tool_registry, output);
 
-        const heartbeat_ref = try allocator.create(heartbeat.Heartbeat);
+        const heartbeat_ref = try control_plane_bootstrap.initHeartbeat(allocator);
         errdefer allocator.destroy(heartbeat_ref);
-        heartbeat_ref.* = heartbeat.Heartbeat.init();
 
-        const cron_scheduler = try allocator.create(cron.CronScheduler);
-        errdefer allocator.destroy(cron_scheduler);
-        cron_scheduler.* = cron.CronScheduler.init(allocator);
-        try cron_scheduler.registerBuiltins();
+        const cron_scheduler = try control_plane_bootstrap.initCronScheduler(allocator);
+        errdefer {
+            cron_scheduler.deinit();
+            allocator.destroy(cron_scheduler);
+        }
 
-        const gateway = try allocator.create(gateway_host.GatewayHost);
-        errdefer allocator.destroy(gateway);
-        gateway.* = try gateway_host.GatewayHost.init(allocator, "127.0.0.1", 8080);
+        const gateway = try control_plane_bootstrap.initGatewayHost(allocator);
+        errdefer {
+            gateway.deinit();
+            allocator.destroy(gateway);
+        }
 
-        const runtime_host_ref = try allocator.create(runtime_host.RuntimeHost);
+        const runtime_host_ref = try control_plane_bootstrap.initRuntimeHost(allocator, gateway, heartbeat_ref, cron_scheduler);
         errdefer allocator.destroy(runtime_host_ref);
-        runtime_host_ref.* = runtime_host.RuntimeHost.init(gateway, heartbeat_ref, cron_scheduler);
 
-        const service_manager_ref = try allocator.create(service_manager.ServiceManager);
+        const service_manager_ref = try control_plane_bootstrap.initServiceManager(allocator, runtime_host_ref);
         errdefer allocator.destroy(service_manager_ref);
-        service_manager_ref.* = service_manager.ServiceManager.init(runtime_host_ref);
 
-        const daemon_ref = try allocator.create(daemon.Daemon);
+        const daemon_ref = try control_plane_bootstrap.initDaemon(allocator, service_manager_ref);
         errdefer allocator.destroy(daemon_ref);
-        daemon_ref.* = daemon.Daemon.init(service_manager_ref);
 
-        const agent_runtime_ref = try allocator.create(agent_runtime.AgentRuntime);
+        const agent_runtime_ref = try domain_bootstrap.initAgentRuntime(allocator, provider_registry, memory_runtime_ref, session_store, output, orchestrator);
         errdefer allocator.destroy(agent_runtime_ref);
-        agent_runtime_ref.* = agent_runtime.AgentRuntime.init(allocator, provider_registry, memory_runtime_ref, session_store, output, orchestrator);
 
-        const stream_registry_ref = try allocator.create(stream_registry.StreamRegistry);
-        errdefer allocator.destroy(stream_registry_ref);
-        stream_registry_ref.* = stream_registry.StreamRegistry.init(allocator, agent_runtime_ref, output);
+        const stream_registry_ref = try domain_bootstrap.initStreamRegistry(allocator, agent_runtime_ref, output);
+        errdefer {
+            stream_registry_ref.deinit();
+            allocator.destroy(stream_registry_ref);
+        }
 
         const config_hooks = try allocator.create(config_runtime_hooks.ConfigRuntimeHooks);
         errdefer allocator.destroy(config_hooks);
 
         self.* = .{
             .allocator = allocator,
-            .framework_context = framework_context,
-            .trace_file_sink = trace_file_sink,
+            .framework_context = framework_setup.framework_context,
+            .trace_file_sink = framework_setup.trace_file_sink,
             .field_registry = field_registry,
             .secret_store = secret_store,
             .security_policy = security_policy,
