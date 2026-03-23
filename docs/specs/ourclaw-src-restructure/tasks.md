@@ -149,14 +149,14 @@
     - `runtime/bootstrap/control_plane_bootstrap.zig`
   - 完成定义：`AppContext` 仍为总依赖容器，但具体装配不再全部堆在一个文件中
 
-- [ ] **C2. 校准 runtime 聚合导出**
+- [x] **C2. 校准 runtime 聚合导出**
   - 主线落点：`ourclaw/src/runtime/root.zig`
   - 目标：确保 runtime 聚合根继续稳定导出新的内部结构
   - 完成定义：外部通过 `runtime/root.zig` 的访问方式尽量不变
 
 ## 4. Wave D — 按子域重组 commands
 
-- [ ] **D1. 为 commands 建立子域目录**
+- [x] **D1. 为 commands 建立子域目录**
   - 主线落点：`ourclaw/src/commands/*`
   - 目标：建立：
     - `agent/`
@@ -169,14 +169,14 @@
     - `events/`
   - 完成定义：命令文件可以按子域被独立浏览、修改和验证
 
-- [ ] **D2. 保持 `commands/root.zig` 为统一注册入口**
+- [x] **D2. 保持 `commands/root.zig` 为统一注册入口**
   - 主线落点：`ourclaw/src/commands/root.zig`
   - 目标：在目录重组后仍通过单一注册入口挂载全部内建命令
   - 完成定义：命令 method 名与注册总量不发生破坏性变化
 
 ## 5. Wave E — 校准聚合根与导入路径
 
-- [ ] **E1. 校准顶层聚合根**
+- [x] **E1. 校准顶层聚合根**
   - 主线落点：
     - `ourclaw/src/root.zig`
     - `ourclaw/src/runtime/root.zig`
@@ -185,7 +185,7 @@
   - 目标：继续通过原聚合根向外导出重组后的内部模块
   - 完成定义：外部 import 路径尽量稳定
 
-- [ ] **E2. 验证依赖方向未被污染**
+- [x] **E2. 验证依赖方向未被污染**
   - 主线落点：`ourclaw/src/*`
   - 目标：确认：
     - `interfaces` 不直接依赖 domain/core
