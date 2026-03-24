@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 const service_contract = @import("service_contract.zig");
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {

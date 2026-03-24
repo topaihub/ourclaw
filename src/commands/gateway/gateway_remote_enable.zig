@@ -1,7 +1,8 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
-const tunnel = @import("../../domain/tunnel_runtime.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
+const tunnel = domain.tunnel_runtime;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{

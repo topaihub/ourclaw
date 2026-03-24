@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{ .id = "gateway.remote.policy.status", .method = "gateway.remote.policy.status", .description = "Show remote gateway policy", .authority = .operator, .user_data = @ptrCast(command_services), .params = &.{}, .handler = handle };

@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{ .id = "gateway.remote.policy.set", .method = "gateway.remote.policy.set", .description = "Set remote gateway policy", .authority = .operator, .user_data = @ptrCast(command_services), .params = &.{ .{ .key = "remote_enabled", .required = false, .value_kind = .boolean }, .{ .key = "default_endpoint", .required = false, .value_kind = .string, .rules = &.{.non_empty_string} }, .{ .key = "revoke_token_on_disable", .required = false, .value_kind = .boolean } }, .handler = handle };
