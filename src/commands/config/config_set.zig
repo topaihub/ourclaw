@@ -3,7 +3,8 @@ const framework = @import("framework");
 const registry = @import("../../config/field_registry.zig");
 const config_runtime = @import("../../config/runtime.zig");
 const runtime_app = @import("../../runtime/app_context.zig");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{

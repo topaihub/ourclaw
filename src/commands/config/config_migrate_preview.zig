@@ -1,7 +1,8 @@
 const std = @import("std");
 const framework = @import("framework");
 const config_migration = @import("../../config/migration.zig");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{

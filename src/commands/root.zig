@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const services = @import("../domain/services.zig");
+const domain = @import("../domain/root.zig");
+const services = domain.services;
 
 pub const MODULE_NAME = "commands";
 

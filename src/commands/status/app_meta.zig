@@ -2,7 +2,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const framework = @import("framework");
 const field_registry = @import("../../config/field_registry.zig");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
+const memory_runtime = domain.memory_runtime;
+const skills = domain.skills;
+const skillforge = domain.skillforge;
+const tunnel_runtime = domain.tunnel_runtime;
+const mcp_runtime = domain.mcp_runtime;
+const peripherals = domain.peripherals;
+const hardware = domain.hardware;
+const voice_runtime = domain.voice_runtime;
+const session_state = domain.session_state;
+const stream_output = domain.stream_output;
+const tool_orchestrator = domain.tool_orchestrator;
 const capability_manifest = @import("../../runtime/capability_manifest.zig");
 
 const APP_NAME = "ourclaw";
@@ -173,30 +185,30 @@ test "app meta command definition is stable" {
     defer channel_registry.deinit();
     var tool_registry = @import("../../tools/root.zig").ToolRegistry.init(std.testing.allocator);
     defer tool_registry.deinit();
-    var skill_registry = @import("../../domain/skills.zig").SkillRegistry.init(std.testing.allocator);
+    var skill_registry = skills.SkillRegistry.init(std.testing.allocator);
     defer skill_registry.deinit();
-    var skillforge = @import("../../domain/skillforge.zig").SkillForge.init(&skill_registry);
-    var tunnel_runtime = @import("../../domain/tunnel_runtime.zig").TunnelRuntime.init(std.testing.allocator);
-    defer tunnel_runtime.deinit();
-    var mcp_runtime = @import("../../domain/mcp_runtime.zig").McpRuntime.init(std.testing.allocator);
-    defer mcp_runtime.deinit();
-    try mcp_runtime.register("local", "stdio", null);
-    var peripheral_registry = @import("../../domain/peripherals.zig").PeripheralRegistry.init(std.testing.allocator);
+    var skillforge_ref = skillforge.SkillForge.init(&skill_registry);
+    var tunnel_runtime_ref = tunnel_runtime.TunnelRuntime.init(std.testing.allocator);
+    defer tunnel_runtime_ref.deinit();
+    var mcp_runtime_ref = mcp_runtime.McpRuntime.init(std.testing.allocator);
+    defer mcp_runtime_ref.deinit();
+    try mcp_runtime_ref.register("local", "stdio", null);
+    var peripheral_registry = peripherals.PeripheralRegistry.init(std.testing.allocator);
     defer peripheral_registry.deinit();
-    var hardware_registry = @import("../../domain/hardware.zig").HardwareRegistry.init(std.testing.allocator);
+    var hardware_registry = hardware.HardwareRegistry.init(std.testing.allocator);
     defer hardware_registry.deinit();
-    var voice_runtime = @import("../../domain/voice_runtime.zig").VoiceRuntime.init(std.testing.allocator);
-    defer voice_runtime.deinit();
+    var voice_runtime_ref = voice_runtime.VoiceRuntime.init(std.testing.allocator);
+    defer voice_runtime_ref.deinit();
     var pairing_registry = @import("../../runtime/pairing_registry.zig").PairingRegistry.init(std.testing.allocator);
     defer pairing_registry.deinit();
     var channel_ingress = @import("../../runtime/channel_ingress.zig").ChannelIngressRuntime.init(std.testing.allocator);
     defer channel_ingress.deinit();
-    var memory_runtime = @import("../../domain/memory_runtime.zig").MemoryRuntime.init(std.testing.allocator);
-    defer memory_runtime.deinit();
-    var session_store = @import("../../domain/session_state.zig").SessionStore.init(std.testing.allocator);
+    var memory_runtime_ref = memory_runtime.MemoryRuntime.init(std.testing.allocator);
+    defer memory_runtime_ref.deinit();
+    var session_store = session_state.SessionStore.init(std.testing.allocator);
     defer session_store.deinit();
-    var output = @import("../../domain/stream_output.zig").StreamOutput.init(std.testing.allocator, &session_store, null, null);
-    var orchestrator = @import("../../domain/tool_orchestrator.zig").ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var output = stream_output.StreamOutput.init(std.testing.allocator, &session_store, null, null);
+    var orchestrator = tool_orchestrator.ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
     var services = services_model.CommandServices{
         .app_context_ptr = null,
         .framework_context = &framework_context,
@@ -206,14 +218,14 @@ test "app meta command definition is stable" {
         .provider_registry = &provider_registry,
         .channel_registry = &channel_registry,
         .tool_registry = &tool_registry,
-        .memory_runtime = &memory_runtime,
+        .memory_runtime = &memory_runtime_ref,
         .skill_registry = &skill_registry,
-        .skillforge = &skillforge,
-        .tunnel_runtime = &tunnel_runtime,
-        .mcp_runtime = &mcp_runtime,
+        .skillforge = &skillforge_ref,
+        .tunnel_runtime = &tunnel_runtime_ref,
+        .mcp_runtime = &mcp_runtime_ref,
         .peripheral_registry = &peripheral_registry,
         .hardware_registry = &hardware_registry,
-        .voice_runtime = &voice_runtime,
+        .voice_runtime = &voice_runtime_ref,
         .pairing_registry = &pairing_registry,
         .channel_ingress = &channel_ingress,
         .session_store = &session_store,

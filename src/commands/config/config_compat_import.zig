@@ -2,7 +2,8 @@ const std = @import("std");
 const framework = @import("framework");
 const compat_import = @import("../../compat/config_import.zig");
 const runtime_app = @import("../../runtime/app_context.zig");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{

@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{ .id = "voice.attach", .method = "voice.attach", .description = "Attach voice runtime to audio peripheral", .authority = .admin, .user_data = @ptrCast(command_services), .params = &.{
