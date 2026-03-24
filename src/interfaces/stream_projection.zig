@@ -3,7 +3,8 @@ const framework = @import("framework");
 const runtime = @import("../runtime/app_context.zig");
 const stream_registry = @import("../runtime/stream_registry.zig");
 const sink_model = @import("stream_sink.zig");
-const stream_output = @import("../domain/stream_output.zig");
+const domain = @import("../domain/root.zig");
+const stream_output = domain.stream_output;
 const stream_websocket = @import("stream_websocket.zig");
 
 pub const ByteSink = sink_model.ByteSink;

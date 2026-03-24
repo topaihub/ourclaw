@@ -1,7 +1,9 @@
 const std = @import("std");
 const framework = @import("framework");
-const agent_runtime = @import("../domain/agent_runtime.zig");
-const stream_output = @import("../domain/stream_output.zig");
+const domain = @import("../domain/root.zig");
+const agent_runtime = domain.agent_runtime;
+const stream_output = domain.stream_output;
+const tool_orchestrator = domain.tool_orchestrator;
 
 pub const AgentRuntime = agent_runtime.AgentRuntime;
 pub const StreamOutput = stream_output.StreamOutput;
@@ -448,7 +450,7 @@ test "stream registry requestCancel propagates into provider execution" {
     defer session_store.deinit();
     var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
     defer output.deinit();
-    var orchestrator = @import("../domain/tool_orchestrator.zig").ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var orchestrator = tool_orchestrator.ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
     var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
     var registry = StreamRegistry.init(std.testing.allocator, &runtime, &output);
     defer registry.deinit();
@@ -498,7 +500,7 @@ test "stream registry requestCancel propagates into tool execution" {
     defer session_store.deinit();
     var output = StreamOutput.init(std.testing.allocator, &session_store, null, null);
     defer output.deinit();
-    var orchestrator = @import("../domain/tool_orchestrator.zig").ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
+    var orchestrator = tool_orchestrator.ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
     var runtime = AgentRuntime.init(std.testing.allocator, &provider_registry, &memory, &session_store, &output, &orchestrator);
     var registry = StreamRegistry.init(std.testing.allocator, &runtime, &output);
     defer registry.deinit();

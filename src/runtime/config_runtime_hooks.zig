@@ -1,6 +1,7 @@
 const std = @import("std");
 const framework = @import("framework");
-const memory_runtime = @import("../domain/memory_runtime.zig");
+const domain = @import("../domain/root.zig");
+const memory_runtime = domain.memory_runtime;
 const providers = @import("../providers/root.zig");
 const heartbeat = @import("heartbeat.zig");
 
