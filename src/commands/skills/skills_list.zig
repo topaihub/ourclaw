@@ -1,6 +1,8 @@
 const std = @import("std");
 const framework = @import("framework");
-const services_model = @import("../../domain/services.zig");
+const domain = @import("../../domain/root.zig");
+const services_model = domain.services;
+const skills_model = domain.skills;
 
 pub fn definition(command_services: *services_model.CommandServices) framework.CommandDefinition {
     return .{
@@ -15,7 +17,6 @@ pub fn definition(command_services: *services_model.CommandServices) framework.C
 
 fn handle(ctx: *const framework.CommandContext) anyerror![]const u8 {
     const services = services_model.CommandServices.fromCommandContext(ctx);
-    const skills_model = @import("../../domain/skills.zig");
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(ctx.allocator);
     const writer = buf.writer(ctx.allocator);
