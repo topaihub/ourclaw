@@ -16,6 +16,7 @@ pub const config_migrate_apply = @import("config/config_migrate_apply.zig");
 pub const config_compat_import = @import("config/config_compat_import.zig");
 pub const diagnostics_summary = @import("diagnostics/diagnostics_summary.zig");
 pub const diagnostics_doctor = @import("diagnostics/diagnostics_doctor.zig");
+pub const diagnostics_repo_health = @import("diagnostics/diagnostics_repo_health.zig");
 pub const diagnostics_remediate_preview = @import("diagnostics/diagnostics_remediate_preview.zig");
 pub const diagnostics_remediate_apply = @import("diagnostics/diagnostics_remediate_apply.zig");
 pub const onboard_summary = @import("onboard/onboard_summary.zig");
@@ -103,6 +104,7 @@ pub fn registerBuiltins(registry: *framework.CommandRegistry, command_services: 
     try registry.register(config_compat_import.definition(command_services));
     try registry.register(diagnostics_summary.definition(command_services));
     try registry.register(diagnostics_doctor.definition(command_services));
+    try registry.register(diagnostics_repo_health.definition(command_services));
     try registry.register(diagnostics_remediate_preview.definition(command_services));
     try registry.register(diagnostics_remediate_apply.definition(command_services));
     try registry.register(onboard_summary.definition(command_services));

@@ -35,6 +35,7 @@ const channel_ingress = @import("channel_ingress.zig");
 const stream_registry = @import("stream_registry.zig");
 const config_runtime_hooks = @import("config_runtime_hooks.zig");
 const http_adapter = @import("../interfaces/http_adapter.zig");
+const framework_integration = @import("../framework_integration/root.zig");
 
 pub const AppBootstrapConfig = struct {
     framework: framework.AppBootstrapConfig = .{},
@@ -45,6 +46,7 @@ pub const AppBootstrapConfig = struct {
 pub const AppContext = struct {
     allocator: std.mem.Allocator,
     framework_context: framework.AppContext,
+    framework_tooling: *framework_integration.ToolingBridge,
     trace_file_sink: ?*framework.TraceTextFileSink,
     field_registry: *config.ConfigFieldRegistry,
     secret_store: *security.MemorySecretStore,
@@ -236,6 +238,7 @@ pub const AppContext = struct {
         self.* = .{
             .allocator = allocator,
             .framework_context = framework_setup.framework_context,
+            .framework_tooling = undefined,
             .trace_file_sink = framework_setup.trace_file_sink,
             .field_registry = field_registry,
             .secret_store = secret_store,
@@ -273,6 +276,9 @@ pub const AppContext = struct {
             .services = undefined,
         };
 
+        self.framework_tooling = try framework_integration.ToolingBridge.init(allocator, &self.framework_context);
+        errdefer self.framework_tooling.deinit();
+
         // 设置 logger 到各个运行时组件
         agent_runtime_ref.setLogger(self.framework_context.logger);
         orchestrator.setLogger(self.framework_context.logger);
@@ -294,6 +300,7 @@ pub const AppContext = struct {
         self.services = .{
             .app_context_ptr = @ptrCast(self),
             .framework_context = &self.framework_context,
+            .framework_tooling = self.framework_tooling,
             .field_registry = self.field_registry,
             .secret_store = self.secret_store,
             .security_policy = self.security_policy,
@@ -374,6 +381,7 @@ pub const AppContext = struct {
         self.secret_store.deinit();
         self.allocator.destroy(self.secret_store);
         self.allocator.destroy(self.field_registry);
+        self.framework_tooling.deinit();
         if (self.trace_file_sink) |sink| {
             sink.deinit();
             self.allocator.destroy(sink);

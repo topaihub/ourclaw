@@ -13,6 +13,7 @@ const voice_runtime = domain.voice_runtime;
 const session_state = domain.session_state;
 const stream_output = domain.stream_output;
 const tool_orchestrator = domain.tool_orchestrator;
+const framework_integration = @import("../framework_integration/root.zig");
 
 const adapters = [_][]const u8{ "cli", "bridge", "http" };
 
@@ -78,6 +79,8 @@ pub fn build(allocator: std.mem.Allocator, services: *services_model.CommandServ
 test "build capability manifest from command services" {
     var framework_context = try framework.AppContext.init(std.testing.allocator, .{});
     defer framework_context.deinit();
+    const framework_tooling = try framework_integration.ToolingBridge.init(std.testing.allocator, &framework_context);
+    defer framework_tooling.deinit();
     var field_registry = @import("../config/field_registry.zig").ConfigFieldRegistry{};
     var secret_store = @import("../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
     defer secret_store.deinit();
@@ -117,7 +120,9 @@ test "build capability manifest from command services" {
     defer output.deinit();
     var orchestrator = tool_orchestrator.ToolOrchestrator.init(std.testing.allocator, &tool_registry, &output);
     var services = services_model.CommandServices{
+        .app_context_ptr = null,
         .framework_context = &framework_context,
+        .framework_tooling = framework_tooling,
         .field_registry = &field_registry,
         .secret_store = &secret_store,
         .security_policy = &security_policy,

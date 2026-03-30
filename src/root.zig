@@ -9,6 +9,7 @@ pub const APP_VERSION = "0.1.0";
 pub const commands = @import("commands/root.zig");
 pub const domain = @import("domain/root.zig");
 pub const compat = @import("compat/root.zig");
+pub const framework_integration = @import("framework_integration/root.zig");
 pub const interfaces = @import("interfaces/root.zig");
 pub const config = @import("config/field_registry.zig");
 pub const security = @import("security/policy.zig");
@@ -31,6 +32,7 @@ test "ourclaw scaffold exports are available" {
     try std.testing.expectEqualStrings("commands", commands.MODULE_NAME);
     try std.testing.expectEqualStrings("domain", domain.MODULE_NAME);
     try std.testing.expectEqualStrings("compat", compat.MODULE_NAME);
+    try std.testing.expectEqualStrings("framework_integration", framework_integration.MODULE_NAME);
     try std.testing.expectEqualStrings("interfaces", interfaces.MODULE_NAME);
     try std.testing.expectEqualStrings("providers", providers.MODULE_NAME);
     try std.testing.expectEqualStrings("channels", channels.MODULE_NAME);

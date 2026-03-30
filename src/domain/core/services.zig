@@ -17,10 +17,12 @@ const pairing_registry = @import("../../runtime/pairing_registry.zig");
 const channel_ingress = @import("../../runtime/channel_ingress.zig");
 const stream_output = @import("stream_output.zig");
 const tool_orchestrator = @import("tool_orchestrator.zig");
+const framework_integration = @import("../../framework_integration/root.zig");
 
 pub const CommandServices = struct {
     app_context_ptr: ?*anyopaque = null,
     framework_context: *framework.AppContext,
+    framework_tooling: *framework_integration.ToolingBridge,
     field_registry: *field_registry.ConfigFieldRegistry,
     secret_store: *security.MemorySecretStore,
     security_policy: *security.SecurityPolicy,

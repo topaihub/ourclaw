@@ -38,6 +38,65 @@ test "app meta command returns expanded runtime metadata" {
     try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"health\":{") != null);
 }
 
+test "diagnostics repo health uses framework tooling runtime" {
+    var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
+    defer app.destroy();
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    const root_path = try tmp_dir.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root_path);
+
+    const git_path = try std.fs.path.join(std.testing.allocator, &.{ root_path, ".git" });
+    defer std.testing.allocator.free(git_path);
+    try app.framework_tooling.effects_runtime.file_system.makePath(git_path);
+
+    const src_path = try std.fs.path.join(std.testing.allocator, &.{ root_path, "src" });
+    defer std.testing.allocator.free(src_path);
+    try app.framework_tooling.effects_runtime.file_system.makePath(src_path);
+
+    const build_path = try std.fs.path.join(std.testing.allocator, &.{ root_path, "build.zig" });
+    defer std.testing.allocator.free(build_path);
+    try app.framework_tooling.effects_runtime.file_system.writeFile(build_path, "const std = @import(\"std\"); pub fn build(_: *std.Build) void {}");
+
+    const params = [_]framework.ValidationField{
+        .{ .key = "path", .value = .{ .string = root_path } },
+    };
+
+    var dispatcher = app.makeDispatcher();
+    const envelope = try dispatcher.dispatch(.{
+        .request_id = "req_diagnostics_repo_health",
+        .method = "diagnostics.repo_health",
+        .params = params[0..],
+        .source = .@"test",
+        .authority = .admin,
+    }, false);
+    defer if (envelope.result) |result| switch (result) {
+        .success_json => |json| std.testing.allocator.free(json),
+        .task_accepted => {},
+    };
+
+    try std.testing.expect(envelope.ok);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"status\":\"healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, envelope.result.?.success_json, "\"has_src_dir\":true") != null);
+
+    const events = try app.framework_context.event_bus.snapshot(std.testing.allocator);
+    defer {
+        for (events) |*event| event.deinit(std.testing.allocator);
+        std.testing.allocator.free(events);
+    }
+
+    var saw_started = false;
+    var saw_completed = false;
+    for (events) |event| {
+        if (std.mem.eql(u8, event.topic, "tool.started")) saw_started = true;
+        if (std.mem.eql(u8, event.topic, "tool.completed")) saw_completed = true;
+    }
+
+    try std.testing.expect(saw_started);
+    try std.testing.expect(saw_completed);
+}
+
 test "config get supports batch output with metadata and source" {
     var app = try ourclaw.runtime.AppContext.init(std.testing.allocator, .{});
     defer app.destroy();

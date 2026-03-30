@@ -10,6 +10,7 @@ zig-out/
 .DS_Store
 .zig-cache-local/
 .zig-global-cache/
+.zig-cache-global/
 logs/
 scripts/
 test-ourclaw.ps1

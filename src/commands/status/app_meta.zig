@@ -16,6 +16,7 @@ const session_state = domain.session_state;
 const stream_output = domain.stream_output;
 const tool_orchestrator = domain.tool_orchestrator;
 const capability_manifest = @import("../../runtime/capability_manifest.zig");
+const framework_integration = @import("../../framework_integration/root.zig");
 
 const APP_NAME = "ourclaw";
 const APP_VERSION = "0.1.0";
@@ -175,6 +176,8 @@ fn writeJsonString(writer: anytype, value: []const u8) anyerror!void {
 test "app meta command definition is stable" {
     var framework_context = try framework.AppContext.init(std.testing.allocator, .{});
     defer framework_context.deinit();
+    const framework_tooling = try framework_integration.ToolingBridge.init(std.testing.allocator, &framework_context);
+    defer framework_tooling.deinit();
     var config_registry = @import("../../config/field_registry.zig").ConfigFieldRegistry{};
     var secret_store = @import("../../security/policy.zig").MemorySecretStore.init(std.testing.allocator);
     defer secret_store.deinit();
@@ -212,6 +215,7 @@ test "app meta command definition is stable" {
     var services = services_model.CommandServices{
         .app_context_ptr = null,
         .framework_context = &framework_context,
+        .framework_tooling = framework_tooling,
         .field_registry = &config_registry,
         .secret_store = &secret_store,
         .security_policy = &security_policy,
